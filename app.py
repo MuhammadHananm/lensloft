@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'mysupersecretkeyIsVeryLongAndSecure')
 
 # --- DATABASE CONFIGURATION (Azure PostgreSQL) ---
-# Azure App Service ki settings mein hum 'DB_URI' variable set karenge
+# Azure App Service mein 'DB_URI' variable set hona chahiye
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DB_URI')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -37,7 +37,18 @@ try:
 except Exception as e:
     print(f"Azure Storage Connection Error: {e}")
 
+# Database aur Login Manager initialize karein
 db.init_app(app)
+
+# --- AUTO-CREATE TABLES ON STARTUP ---
+# Yeh hissa Azure par missing tables ka error khatam karega
+with app.app_context():
+    try:
+        db.create_all()
+        print("Database tables checked/created successfully!")
+    except Exception as e:
+        print(f"Error creating database tables: {e}")
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
@@ -59,24 +70,6 @@ def timeago(date):
     if hours < 24: return f"{int(hours)}h ago"
     days = hours // 24
     return f"{int(days)}d ago"
-
-# --- CLI COMMANDS ---
-@app.cli.command("init-db")
-def init_db():
-    db.create_all()
-    print("Database Initialized!")
-
-@app.cli.command("create-creator")
-def create_creator():
-    username = input("Enter Creator Username: ")
-    password = input("Enter Creator Password: ")
-    if User.query.filter_by(username=username).first():
-        print("Error: Username already exists.")
-        return
-    new_user = User(username=username, password=generate_password_hash(password), role='creator')
-    db.session.add(new_user)
-    db.session.commit()
-    print(f"Success! Creator '{username}' created.")
 
 # --- AI IMAGE ANALYSIS ---
 def analyze_image(img_obj):
@@ -141,7 +134,6 @@ def profile(username):
     liked_photos = Photo.query.join(Like).filter(Like.user_id == user.id).order_by(Like.timestamp.desc()).all()
     return render_template('profile.html', user=user, photos=photos, saved_photos=saved_photos, liked_photos=liked_photos)
 
-# --- UPLOAD ROUTE WITH AZURE BLOB STORAGE ---
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
 def creator_dashboard():
@@ -160,31 +152,22 @@ def creator_dashboard():
             filename = secure_filename(file.filename)
             
             try:
-                # 1. Open and Process Image
                 img = Image.open(file)
                 if img.mode != 'RGB': img = img.convert('RGB')
                 
-                # 2. AI Analysis
                 auto_tags = analyze_image(img)
-                
-                # 3. Optimize
                 img.thumbnail((1080, 1080))
                 
-                # 4. Save to Memory Buffer
                 in_mem_file = io.BytesIO()
                 img.save(in_mem_file, format='JPEG', optimize=True, quality=85)
                 in_mem_file.seek(0)
                 
-                # 5. Upload to Azure Blob Storage
                 blob_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
                 blob_client = blob_service_client.get_blob_client(container=AZURE_CONTAINER_NAME, blob=blob_name)
-                
                 blob_client.upload_blob(in_mem_file, overwrite=True)
                 
-                # 6. Generate Public URL
                 file_url = blob_client.url
                 
-                # 7. Save to Database
                 new_photo = Photo(filename=file_url, title=title, caption=caption, 
                                   location=location, people_present=people, 
                                   auto_tags=auto_tags, user_id=current_user.id)
@@ -296,26 +279,6 @@ def edit_profile():
         return redirect(url_for('profile', username=current_user.username))
     return render_template('edit_profile.html')
 
-@app.route('/remove_avatar')
-@login_required
-def remove_avatar():
-    current_user.avatar = None
-    db.session.commit()
-    return redirect(url_for('edit_profile'))
-
-@app.route('/follow/<username>')
-@login_required
-def follow_user(username):
-    if current_user.role == 'creator':
-        flash("Creators cannot follow users.", 'warning')
-        return redirect(url_for('profile', username=username))
-    user = User.query.filter_by(username=username).first()
-    if user and user != current_user:
-        if current_user.is_following(user): current_user.unfollow(user)
-        else: current_user.follow(user)
-        db.session.commit()
-    return redirect(url_for('profile', username=username))
-
 @app.route('/logout')
 @login_required
 def logout():
@@ -323,6 +286,5 @@ def logout():
     return redirect(url_for('login'))
 
 if __name__ == '__main__':
-    # Azure App Service usually runs on port 80 or uses an environment variable
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
