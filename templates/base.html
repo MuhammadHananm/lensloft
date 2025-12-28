@@ -3,77 +3,121 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PhotoShare</title>
+    <title>LensLoft | Curated by Hanan</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Grand+Hotel&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-</head>
-<body class="bg-light">
+    <link href="https://fonts.googleapis.com/css2?family=Grand+Hotel&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --glass-bg: rgba(255, 255, 255, 0.95);
+        }
+        body { font-family: 'Inter', sans-serif; background-color: #f4f7f6; min-height: 100vh; }
+        
+        /* Modern Glass Navbar */
+        .navbar { 
+            background: var(--glass-bg); 
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(0,0,0,0.05); 
+            height: 70px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.03);
+        }
+        .navbar-brand { 
+            font-family: 'Grand Hotel', cursive; 
+            font-size: 2.5rem; 
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 400;
+        }
+        .hanan-tag {
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: #764ba2;
+            border: 1.5px solid #764ba2;
+            padding: 1px 6px;
+            border-radius: 4px;
+            margin-left: 10px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        .nav-link { color: #444; font-size: 1.3rem; transition: 0.3s; }
+        .nav-link:hover { color: #667eea; transform: scale(1.1); }
+        
+        /* Search Bar Styling */
+        .search-container { position: relative; width: 250px; }
+        .search-input { 
+            border-radius: 20px !important; 
+            border: 1px solid #e1e1e1 !important; 
+            padding-left: 35px !important; 
+            font-size: 0.85rem;
+            background: #fdfdfd !important;
+        }
+        .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #999; font-size: 0.8rem; }
 
-    <nav class="navbar navbar-expand fixed-top shadow-sm">
+        /* Custom Alerts */
+        .alert-custom {
+            border-radius: 12px;
+            border: none;
+            background: var(--primary-gradient);
+            color: white;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand fixed-top">
         <div class="container" style="max-width: 935px;">
-            <a class="navbar-brand" href="{{ url_for('home') }}">PhotoShare</a>
+            <div class="d-flex align-items-center">
+                <a class="navbar-brand" href="{{ url_for('home') }}">LensLoft</a>
+                <span class="hanan-tag">Hanan</span>
+            </div>
             
-            <div class="d-flex align-items-center gap-3">
+            <div class="d-flex align-items-center gap-4">
                 {% if current_user.is_authenticated %}
-                    
-                    <form action="{{ url_for('feed') }}" method="get" class="d-none d-md-block me-2">
-                        <div class="input-group">
-                            <span class="input-group-text border-0 bg-light text-muted pe-0"><i class="fas fa-search small"></i></span>
-                            <input type="search" name="q" class="form-control border-0 bg-light shadow-none search-input" placeholder="Search..." style="background: transparent;">
-                        </div>
+                    <form action="{{ url_for('feed') }}" method="get" class="d-none d-md-block search-container">
+                        <i class="fas fa-search search-icon"></i>
+                        <input type="search" name="q" class="form-control search-input" placeholder="Explore LensLoft...">
                     </form>
 
-                    <a href="{{ url_for('feed') }}" class="nav-link {{ 'active' if request.endpoint == 'feed' else '' }}" title="Home">
-                        <i class="fas fa-home"></i>
+                    <a href="{{ url_for('feed') }}" class="nav-link" title="Feed">
+                        <i class="{{ 'fas' if request.endpoint == 'feed' else 'far' }} fa-compass"></i>
                     </a>
                     
                     {% if current_user.role == 'creator' %}
-                    <a href="{{ url_for('creator_dashboard') }}" class="nav-link {{ 'active' if request.endpoint == 'creator_dashboard' else '' }}" title="Upload">
-                        <i class="{{ 'fas' if request.endpoint == 'creator_dashboard' else 'far' }} fa-plus-square"></i>
+                    <a href="{{ url_for('creator_dashboard') }}" class="nav-link" title="Upload to Loft">
+                        <i class="far fa-plus-square"></i>
                     </a>
                     {% endif %}
 
                     <div class="dropdown">
-                        <a href="#" class="nav-link d-flex align-items-center p-0" data-bs-toggle="dropdown">
-                            <div class="nav-avatar-container">
-                                {% if current_user.avatar %}
-                                    <img src="{{ url_for('static', filename='uploads/' + current_user.avatar) }}" class="nav-avatar object-fit-cover">
-                                {% else %}
-                                    <i class="fas fa-user-circle" style="font-size: 1.6rem;"></i>
-                                {% endif %}
+                        <a href="#" class="nav-link p-0" data-bs-toggle="dropdown">
+                            <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--primary-gradient); display: flex; align-items: center; justify-content: center; color: white;">
+                                <i class="fas fa-user" style="font-size: 0.9rem;"></i>
                             </div>
                         </a>
-                        <ul class="dropdown-menu dropdown-menu-end shadow border-0 mt-3 p-2 rounded-3">
-                            <li>
-                                <a class="dropdown-item fw-bold rounded py-2" href="{{ url_for('profile', username=current_user.username) }}">
-                                    <i class="far fa-user-circle me-2"></i> Profile
-                                </a>
-                            </li>
+                        <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 mt-3 p-2 rounded-4">
+                            <li><a class="dropdown-item fw-bold py-2" href="{{ url_for('profile', username=current_user.username) }}">Profile</a></li>
                             <li><hr class="dropdown-divider"></li>
-                            <li>
-                                <a class="dropdown-item text-danger rounded py-2" href="{{ url_for('logout') }}">
-                                    Log Out
-                                </a>
-                            </li>
+                            <li><a class="dropdown-item text-danger py-2" href="{{ url_for('logout') }}">Exit Studio</a></li>
                         </ul>
                     </div>
                 {% else %}
-                    <a href="{{ url_for('login') }}" class="btn btn-primary btn-sm px-4 fw-bold rounded-pill">Log In</a>
-                    <a href="{{ url_for('register') }}" class="text-primary fw-bold text-decoration-none small ms-3">Sign Up</a>
+                    <a href="{{ url_for('login') }}" class="btn btn-sm px-4 fw-bold text-white rounded-pill" style="background: var(--primary-gradient);">Log In</a>
+                    <a href="{{ url_for('register') }}" class="text-decoration-none small fw-bold" style="color: #764ba2;">Sign Up</a>
                 {% endif %}
             </div>
         </div>
     </nav>
 
-    <div class="container" style="max-width: 935px; margin-top: 80px; padding-bottom: 50px;">
+    <div class="container" style="max-width: 935px; margin-top: 100px; padding-bottom: 50px;">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} alert-dismissible fade show py-2 small shadow-sm rounded-3 border-0" role="alert">
+                    <div class="alert alert-custom alert-dismissible fade show shadow-sm mb-4" role="alert">
                         {{ message }}
-                        <button type="button" class="btn-close btn-close-white small" data-bs-dismiss="alert"></button>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
                     </div>
                 {% endfor %}
             {% endif %}

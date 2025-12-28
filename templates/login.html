@@ -1,39 +1,110 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="auth-container">
-    <div class="auth-card">
-        <h1 style="font-family: 'Grand Hotel', cursive; font-size: 3rem; margin-bottom: 30px;">PhotoShare</h1>
+<style>
+    /* LensLoft Premium Design for Hanan */
+    body {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+    }
+    .login-container {
+        max-width: 400px;
+        width: 100%;
+        margin: auto;
+        padding: 20px;
+    }
+    .glass-card {
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(10px);
+        border-radius: 20px;
+        padding: 40px;
+        box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+        text-align: center;
+        border: 1px solid rgba(255,255,255,0.3);
+    }
+    .brand-name {
+        font-family: 'Grand Hotel', cursive;
+        font-size: 4rem;
+        background: linear-gradient(to right, #667eea, #764ba2);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 5px;
+    }
+    .student-info {
+        font-size: 0.75rem;
+        letter-spacing: 2px;
+        color: #764ba2;
+        font-weight: 700;
+        text-transform: uppercase;
+        margin-bottom: 30px;
+        display: block;
+    }
+    .form-floating > .form-control {
+        border-radius: 10px;
+        border: 1px solid #e1e1e1;
+        background: #fdfdfd;
+    }
+    .form-floating > label { color: #999; }
+    
+    .btn-premium {
+        background: linear-gradient(to right, #667eea, #764ba2);
+        border: none;
+        color: white;
+        padding: 12px;
+        border-radius: 10px;
+        font-weight: 600;
+        width: 100%;
+        transition: transform 0.3s ease;
+        margin-top: 15px;
+    }
+    .btn-premium:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 5px 15px rgba(118, 75, 162, 0.4);
+        color: white;
+    }
+    .signup-link {
+        margin-top: 25px;
+        font-size: 0.9rem;
+        color: #666;
+    }
+    .signup-link a {
+        color: #764ba2;
+        text-decoration: none;
+        font-weight: 700;
+    }
+</style>
+
+<div class="login-container">
+    <div class="glass-card">
+        <h1 class="brand-name">LensLoft</h1>
+        <span class="student-info">Curated by Hanan</span>
         
         <form method="POST">
-            <div class="mb-2">
-                <input type="text" name="username" class="form-control" placeholder="Username" required>
+            <div class="form-floating mb-3">
+                <input type="text" name="username" class="form-control" id="user" placeholder="Username" required>
+                <label for="user">Username</label>
             </div>
             
-            <div class="mb-3">
-                <input type="password" name="password" class="form-control" placeholder="Password" required>
+            <div class="form-floating mb-3">
+                <input type="password" name="password" class="form-control" id="pass" placeholder="Password" required>
+                <label for="pass">Password</label>
             </div>
 
             <div class="mb-3">
-                <select name="role" class="form-select form-control text-muted" style="font-size: 13px;" required>
-                    <option value="" disabled selected>Select Login Role</option>
-                    <option value="consumer">Consumer</option>
-                    <option value="creator">Creator</option>
+                <select name="role" class="form-select" style="border-radius: 10px; padding: 12px; font-size: 0.9rem; color: #666;" required>
+                    <option value="" disabled selected>Select Portal</option>
+                    <option value="consumer">Public Gallery (Consumer)</option>
+                    <option value="creator">Admin Studio (Creator)</option>
                 </select>
             </div>
 
-            <button type="submit" class="btn btn-primary w-100 fw-bold py-1">Log In</button>
+            <button type="submit" class="btn btn-premium">Enter Studio</button>
         </form>
 
-        <div class="d-flex align-items-center my-3">
-            <div class="border-bottom flex-grow-1"></div>
-            <span class="mx-3 text-muted fw-bold small">OR</span>
-            <div class="border-bottom flex-grow-1"></div>
+        <div class="signup-link">
+            New here? <a href="{{ url_for('register') }}">Create Account</a>
         </div>
-        <a href="#" class="text-primary fw-bold text-decoration-none small">Forgot password?</a>
-    </div>
-    
-    <div class="auth-card mt-3 py-3" style="padding: 20px 0;">
-        <p class="text-sm text-dark mb-0">Don't have an account? <a href="{{ url_for('register') }}" class="fw-bold text-primary text-decoration-none">Sign up</a></p>
     </div>
 </div>
 {% endblock %}

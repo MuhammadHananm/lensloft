@@ -1,153 +1,239 @@
 {% extends "base.html" %}
 
 {% block content %}
+<style>
+    /* LensLoft Profile Design for Hanan */
+    .profile-glass-card {
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(15px);
+        border-radius: 30px;
+        padding: 40px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        border: 1px solid rgba(255,255,255,0.4);
+        margin-top: 20px;
+    }
+    .profile-avatar-custom {
+        width: 150px;
+        height: 150px;
+        border-radius: 50%;
+        object-fit: cover;
+        padding: 5px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        box-shadow: 0 10px 20px rgba(118, 75, 162, 0.2);
+    }
+    .default-avatar-icon {
+        font-size: 150px;
+        color: #ddd;
+        background: white;
+        border-radius: 50%;
+    }
+    .profile-username-main {
+        font-weight: 300;
+        font-size: 2rem;
+        color: #262626;
+    }
+    .btn-edit-loft {
+        border-radius: 10px;
+        font-weight: 600;
+        padding: 5px 20px;
+        font-size: 0.9rem;
+        background: white;
+        border: 1px solid #dbdbdb;
+        transition: 0.3s;
+    }
+    .btn-edit-loft:hover { background: #fafafa; border-color: #aeaeae; }
+    
+    .btn-follow-premium {
+        background: linear-gradient(to right, #667eea, #764ba2);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 6px 24px;
+        font-weight: 700;
+    }
+
+    .stat-number { font-weight: 700; color: #262626; margin-right: 5px; }
+    .stat-label { color: #8e8e8e; font-size: 0.95rem; margin-right: 25px; }
+
+    /* Custom Tabs */
+    .loft-tabs { border: none; justify-content: center; border-top: 1px solid #dbdbdb; margin-top: 50px; }
+    .loft-tabs .nav-link {
+        border: none !important;
+        color: #8e8e8e;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 0.75rem;
+        padding: 15px 30px;
+        position: relative;
+    }
+    .loft-tabs .nav-link.active {
+        background: transparent !important;
+        color: #262626 !important;
+    }
+    .loft-tabs .nav-link.active::after {
+        content: '';
+        position: absolute;
+        top: -1px;
+        left: 0;
+        width: 100%;
+        height: 1.5px;
+        background: #262626;
+    }
+
+    /* Grid Hover Effect */
+    .loft-grid-item {
+        position: relative;
+        aspect-ratio: 1 / 1;
+        overflow: hidden;
+        border-radius: 8px;
+        cursor: pointer;
+    }
+    .loft-overlay {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        opacity: 0;
+        transition: 0.3s;
+    }
+    .loft-grid-item:hover .loft-overlay { opacity: 1; }
+</style>
+
 <div class="row justify-content-center">
-    <div class="col-md-10 col-lg-8">
+    <div class="col-md-11 col-lg-9">
         
-        <div class="profile-header">
-            <div class="profile-avatar-wrapper">
-                {% if user.avatar %}
-                    <img src="{{ url_for('static', filename='uploads/' + user.avatar) }}" class="profile-avatar object-fit-cover">
-                {% else %}
-                    <i class="fas fa-user-circle text-muted" style="font-size: 150px;"></i>
-                {% endif %}
-            </div>
-            
-            <div class="profile-info">
-                <div class="d-flex align-items-center mb-3 flex-wrap gap-3">
-                    <h2 class="profile-username mb-0">{{ user.username }}</h2>
-                    
-                    {% if current_user.id == user.id %}
-                        <a href="{{ url_for('edit_profile') }}" class="btn btn-light border">Edit Profile</a>
+        <div class="profile-glass-card">
+            <div class="row align-items-center">
+                <div class="col-md-4 text-center mb-4 mb-md-0">
+                    {% if user.avatar %}
+                        <img src="{{ url_for('static', filename='uploads/' + user.avatar) }}" class="profile-avatar-custom">
                     {% else %}
-                        {% if current_user.role == 'consumer' %}
-                            {% if current_user.is_following(user) %}
-                                <a href="{{ url_for('follow_user', username=user.username) }}" class="btn btn-light border">Unfollow</a>
-                            {% else %}
-                                <a href="{{ url_for('follow_user', username=user.username) }}" class="btn btn-primary btn-sm">Follow</a>
-                            {% endif %}
-                        {% endif %}
+                        <i class="fas fa-user-circle default-avatar-icon"></i>
                     {% endif %}
                 </div>
                 
-                <div class="profile-stats mb-3">
-                    <span><strong>{{ photos|length }}</strong> posts</span>
-                    <span><strong>{{ user.followers.count() }}</strong> followers</span>
-                    <span><strong>{{ user.followed.count() }}</strong> following</span>
-                </div>
-                
-                <div class="small">
-                    <strong class="text-dark">{{ user.role.title() }}</strong> <br>
-                    <p class="mb-0" style="white-space: pre-wrap;">{{ user.bio or '' }}</p>
+                <div class="col-md-8">
+                    <div class="d-flex align-items-center mb-4 flex-wrap gap-3">
+                        <h2 class="profile-username-main mb-0">{{ user.username }}</h2>
+                        
+                        {% if current_user.id == user.id %}
+                            <a href="{{ url_for('edit_profile') }}" class="btn btn-edit-loft">Edit LensLoft</a>
+                        {% else %}
+                            {% if current_user.role == 'consumer' %}
+                                {% if current_user.is_following(user) %}
+                                    <a href="{{ url_for('follow_user', username=user.username) }}" class="btn btn-edit-loft">Unfollow</a>
+                                {% else %}
+                                    <a href="{{ url_for('follow_user', username=user.username) }}" class="btn btn-follow-premium">Follow</a>
+                                {% endif %}
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                    
+                    <div class="d-flex mb-4">
+                        <span class="stat-label"><span class="stat-number">{{ photos|length }}</span> posts</span>
+                        <span class="stat-label"><span class="stat-number">{{ user.followers.count() }}</span> followers</span>
+                        <span class="stat-label"><span class="stat-number">{{ user.followed.count() }}</span> following</span>
+                    </div>
+                    
+                    <div>
+                        <span class="badge mb-2" style="background: linear-gradient(to right, #667eea, #764ba2);">{{ user.role.title() }}</span>
+                        <p class="mb-0 fw-bold text-dark">{{ user.username }}</p>
+                        <p class="mb-0 text-muted" style="white-space: pre-wrap; font-size: 0.9rem;">{{ user.bio or 'Welcome to my LensLoft studio.' }}</p>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <ul class="nav nav-tabs" id="profileTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="posts-tab" data-bs-toggle="tab" data-bs-target="#posts" type="button" role="tab">
-                    <i class="fas fa-th me-1"></i> Posts
-                </button>
-            </li>
-            
-            {% if current_user.id == user.id and current_user.role == 'consumer' %}
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="saved-tab" data-bs-toggle="tab" data-bs-target="#saved" type="button" role="tab">
-                    <i class="far fa-bookmark me-1"></i> Saved
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="liked-tab" data-bs-toggle="tab" data-bs-target="#liked" type="button" role="tab">
-                    <i class="far fa-heart me-1"></i> Liked
-                </button>
-            </li>
-            {% endif %}
-        </ul>
+            <ul class="nav nav-tabs loft-tabs" id="profileTabs" role="tablist">
+                <li class="nav-item">
+                    <button class="nav-link active" id="posts-tab" data-bs-toggle="tab" data-bs-target="#posts" type="button">
+                        <i class="fas fa-th me-2"></i> POSTS
+                    </button>
+                </li>
+                {% if current_user.id == user.id and current_user.role == 'consumer' %}
+                <li class="nav-item">
+                    <button class="nav-link" id="saved-tab" data-bs-toggle="tab" data-bs-target="#saved" type="button">
+                        <i class="far fa-bookmark me-2"></i> SAVED
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link" id="liked-tab" data-bs-toggle="tab" data-bs-target="#liked" type="button">
+                        <i class="far fa-heart me-2"></i> LIKED
+                    </button>
+                </li>
+                {% endif %}
+            </ul>
 
-        <div class="tab-content" id="profileTabsContent">
-            
-            <div class="tab-pane fade show active" id="posts" role="tabpanel">
-                <div class="row row-cols-3 g-1 g-md-4 mt-1">
-                    {% for photo in photos %}
-                    <div class="col">
-                        <div class="profile-grid-item">
-                            <img src="{{ photo.filename }}" class="w-100 h-100 object-fit-cover">
-                            <div class="profile-overlay">
-                                <span><i class="fas fa-heart me-1"></i> {{ photo.likes.count() }}</span>
-                                <span class="ms-3"><i class="fas fa-comment me-1"></i> {{ photo.comments.count() }}</span>
+            <div class="tab-content pt-4" id="profileTabsContent">
+                <div class="tab-pane fade show active" id="posts">
+                    <div class="row row-cols-3 g-2 g-md-3">
+                        {% for photo in photos %}
+                        <div class="col">
+                            <div class="loft-grid-item">
+                                <img src="{{ photo.filename }}" class="w-100 h-100 object-fit-cover">
+                                <div class="loft-overlay">
+                                    <span><i class="fas fa-heart me-1"></i> {{ photo.likes.count() }}</span>
+                                    <span class="ms-3"><i class="fas fa-comment me-1"></i> {{ photo.comments.count() }}</span>
+                                </div>
                             </div>
                         </div>
+                        {% else %}
+                        <div class="col-12 text-center py-5 text-muted">
+                            <i class="fas fa-camera fa-2x mb-3"></i>
+                            <p>No posts yet from Hanan's Studio.</p>
+                        </div>
+                        {% endfor %}
                     </div>
-                    {% else %}
-                    <div class="col-12 text-center py-5 text-muted">
-                        <i class="fas fa-camera fa-2x mb-3"></i>
-                        <h5>No Photos Yet</h5>
-                    </div>
-                    {% endfor %}
                 </div>
-            </div>
 
-            {% if current_user.id == user.id and current_user.role == 'consumer' %}
-            <div class="tab-pane fade" id="saved" role="tabpanel">
-                <div class="row row-cols-3 g-1 g-md-4 mt-1">
-                    {% for photo in saved_photos %}
-                    <div class="col">
-                        <div class="profile-grid-item">
-                            <img src="{{ photo.filename }}" class="w-100 h-100 object-fit-cover">
-                            <div class="profile-overlay">
-                                <span><i class="fas fa-heart me-1"></i> {{ photo.likes.count() }}</span>
-                                <span class="ms-3"><i class="fas fa-comment me-1"></i> {{ photo.comments.count() }}</span>
+                {% if current_user.id == user.id and current_user.role == 'consumer' %}
+                <div class="tab-pane fade" id="saved">
+                    <div class="row row-cols-3 g-2 g-md-3">
+                        {% for photo in saved_photos %}
+                        <div class="col">
+                            <div class="loft-grid-item">
+                                <img src="{{ photo.filename }}" class="w-100 h-100 object-fit-cover">
+                                <div class="loft-overlay">
+                                    <span><i class="fas fa-heart me-1"></i> {{ photo.likes.count() }}</span>
+                                    <span class="ms-3"><i class="fas fa-comment me-1"></i> {{ photo.comments.count() }}</span>
+                                </div>
                             </div>
                         </div>
+                        {% else %}
+                        <div class="col-12 text-center py-5 text-muted">
+                            <i class="far fa-bookmark fa-2x mb-3"></i>
+                            <p>You haven't saved any masterpieces yet.</p>
+                        </div>
+                        {% endfor %}
                     </div>
-                    {% else %}
-                    <div class="col-12 text-center py-5 text-muted">
-                        <i class="far fa-bookmark fa-2x mb-3"></i>
-                        <h5>Save Photos</h5>
-                    </div>
-                    {% endfor %}
                 </div>
-            </div>
 
-            <div class="tab-pane fade" id="liked" role="tabpanel">
-                <div class="row row-cols-3 g-1 g-md-4 mt-1">
-                    {% for photo in liked_photos %}
-                    <div class="col">
-                        <div class="profile-grid-item">
-                            <img src="{{ photo.filename }}" class="w-100 h-100 object-fit-cover">
-                            <div class="profile-overlay">
-                                <span><i class="fas fa-heart me-1"></i> {{ photo.likes.count() }}</span>
-                                <span class="ms-3"><i class="fas fa-comment me-1"></i> {{ photo.comments.count() }}</span>
+                <div class="tab-pane fade" id="liked">
+                    <div class="row row-cols-3 g-2 g-md-3">
+                        {% for photo in liked_photos %}
+                        <div class="col">
+                            <div class="loft-grid-item">
+                                <img src="{{ photo.filename }}" class="w-100 h-100 object-fit-cover">
+                                <div class="loft-overlay">
+                                    <span><i class="fas fa-heart me-1"></i> {{ photo.likes.count() }}</span>
+                                    <span class="ms-3"><i class="fas fa-comment me-1"></i> {{ photo.comments.count() }}</span>
+                                </div>
                             </div>
                         </div>
+                        {% else %}
+                        <div class="col-12 text-center py-5 text-muted">
+                            <i class="far fa-heart fa-2x mb-3"></i>
+                            <p>No liked photos found.</p>
+                        </div>
+                        {% endfor %}
                     </div>
-                    {% else %}
-                    <div class="col-12 text-center py-5 text-muted">
-                        <i class="far fa-heart fa-2x mb-3"></i>
-                        <h5>No Liked Photos</h5>
-                    </div>
-                    {% endfor %}
                 </div>
+                {% endif %}
             </div>
-            {% endif %}
-
         </div>
     </div>
 </div>
-
-<script>
-    const tabs = document.querySelectorAll('.nav-link');
-    tabs.forEach(tab => {
-        tab.addEventListener('click', function() {
-            // Remove active class from all tabs
-            tabs.forEach(t => { 
-                t.classList.remove('active'); 
-                t.classList.add('text-muted');
-            });
-            // Add active to clicked
-            this.classList.remove('text-muted');
-            this.classList.add('active');
-        });
-    });
-</script>
 {% endblock %}

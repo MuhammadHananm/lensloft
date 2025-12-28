@@ -1,155 +1,209 @@
 {% extends "base.html" %}
 
 {% block content %}
+<style>
+    /* LensLoft Feed Styling for Hanan */
+    .loft-post-card {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        border-radius: 24px;
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+        margin-bottom: 35px;
+        overflow: hidden;
+    }
+    .loft-post-header {
+        padding: 15px 20px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .loft-avatar-img {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 2px solid #764ba2;
+        padding: 1.5px;
+        background: white;
+    }
+    .loft-post-img {
+        width: 100%;
+        max-height: 600px;
+        object-fit: cover;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .action-icon {
+        font-size: 1.35rem;
+        cursor: pointer;
+        transition: transform 0.2s;
+        color: #444;
+    }
+    .action-icon:hover { transform: scale(1.15); color: #764ba2; }
+    
+    /* AI Features Styling */
+    .ai-analysis-box {
+        background: rgba(118, 75, 162, 0.05);
+        border-left: 3px solid #764ba2;
+        padding: 10px 15px;
+        border-radius: 0 8px 8px 0;
+        margin: 15px 0;
+    }
+    .ai-label {
+        font-size: 0.65rem;
+        font-weight: 800;
+        color: #764ba2;
+        letter-spacing: 1px;
+        display: block;
+        margin-bottom: 5px;
+    }
+    .ai-badge {
+        background: white;
+        color: #555;
+        border: 1px solid #e1e1e1;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+    }
+    
+    .comment-input-loft {
+        border: none !important;
+        box-shadow: none !important;
+        font-size: 0.9rem;
+        padding: 15px;
+        background: transparent;
+        width: 100%;
+    }
+    .post-btn-loft {
+        color: #764ba2;
+        font-weight: 700;
+        border: none;
+        background: transparent;
+        padding: 0 15px;
+    }
+</style>
+
 <div class="row justify-content-center">
-    <div class="col-md-8 col-lg-5"> 
+    <div class="col-md-9 col-lg-6"> 
         
         {% for photo in photos %}
-        <div class="post-card">
+        <div class="loft-post-card">
             
-            <div class="post-header">
-                <div class="d-flex align-items-center gap-2">
-                    <a href="{{ url_for('profile', username=photo.creator.username) }}" class="text-decoration-none">
+            <div class="loft-post-header">
+                <div class="d-flex align-items-center gap-3">
+                    <a href="{{ url_for('profile', username=photo.creator.username) }}">
                         {% if photo.creator.avatar %}
-                            <img src="{{ url_for('static', filename='uploads/' + photo.creator.avatar) }}" class="rounded-circle border" style="width: 32px; height: 32px; object-fit: cover;">
+                            <img src="{{ url_for('static', filename='uploads/' + photo.creator.avatar) }}" class="loft-avatar-img">
                         {% else %}
-                            <i class="fas fa-user-circle fa-2x text-muted"></i>
+                            <div class="loft-avatar-img d-flex align-items-center justify-content-center">
+                                <i class="fas fa-user-circle text-muted" style="font-size: 28px;"></i>
+                            </div>
                         {% endif %}
                     </a>
-                    <div style="line-height: 1.2;">
-                        <a href="{{ url_for('profile', username=photo.creator.username) }}" class="d-block fw-semibold text-dark text-decoration-none" style="font-size: 14px;">
+                    <div>
+                        <a href="{{ url_for('profile', username=photo.creator.username) }}" class="fw-bold text-dark text-decoration-none d-block small">
                             {{ photo.creator.username }}
                         </a>
                         {% if photo.location %}
-                        <small class="text-xs text-muted">{{ photo.location }}</small>
+                        <small class="text-muted" style="font-size: 11px;"><i class="fas fa-map-marker-alt me-1"></i> {{ photo.location }}</small>
                         {% endif %}
                     </div>
                 </div>
-                <i class="fas fa-ellipsis-h text-muted small cursor-pointer"></i>
+                <i class="fas fa-ellipsis-h text-muted small"></i>
             </div>
 
-            <div class="bg-light">
-                <img src="{{ photo.filename }}" class="post-img" loading="lazy">
+            <div class="bg-dark d-flex align-items-center justify-content-center" style="min-height: 400px;">
+                <img src="{{ photo.filename }}" class="loft-post-img" loading="lazy" alt="{{ photo.title }}">
             </div>
 
-            <div class="p-3 pb-1">
-                
+            <div class="p-4">
                 {% if current_user.role == 'consumer' %}
-                <div class="d-flex justify-content-between mb-2">
-                    <div class="d-flex gap-3">
+                <div class="d-flex justify-content-between mb-3">
+                    <div class="d-flex gap-4">
                         {% set is_liked = photo.is_liked_by(current_user) %}
                         <i class="{{ 'fas text-danger' if is_liked else 'far' }} fa-heart action-icon like-btn" 
-                           data-photo-id="{{ photo.id }}" 
-                           onclick="toggleLike(this)"></i>
+                           data-photo-id="{{ photo.id }}" onclick="toggleLike(this)"></i>
                         
                         <i class="far fa-comment action-icon" onclick="focusComment('comment-input-{{ photo.id }}')"></i>
-                        
                         <i class="far fa-paper-plane action-icon" onclick="copyLink('{{ request.host_url }}#photo-{{ photo.id }}')"></i>
                     </div>
                     
                     {% set is_saved = photo.is_saved_by(current_user) %}
                     <i class="{{ 'fas text-dark' if is_saved else 'far' }} fa-bookmark action-icon" 
-                       data-photo-id="{{ photo.id }}" 
-                       onclick="toggleSave(this)"></i>
+                       data-photo-id="{{ photo.id }}" onclick="toggleSave(this)"></i>
                 </div>
                 {% endif %}
                 
                 <div class="mb-2">
-                    <span class="fw-bold text-sm">
-                        <span id="like-count-{{ photo.id }}">{{ photo.likes.count() }}</span> likes
-                    </span>
+                    <span class="fw-bold"><span id="like-count-{{ photo.id }}">{{ photo.likes.count() }}</span> likes</span>
                 </div>
 
-                <div class="mb-2 caption-text" style="font-size: 14px;">
-                    <a href="{{ url_for('profile', username=photo.creator.username) }}" class="fw-semibold me-1 text-dark text-decoration-none">
-                        {{ photo.creator.username }}
-                    </a>
-                    
-                    <span class="fw-bold">{{ photo.title }}</span> 
-                    
+                <div class="mb-3">
+                    <p class="mb-1"><span class="fw-bold me-2">{{ photo.creator.username }}</span> <span class="fw-bold text-primary">{{ photo.title }}</span></p>
                     {% if photo.caption %}
-                    <br><span class="text-muted small">{{ photo.caption }}</span>
+                    <p class="text-muted small mb-1">{{ photo.caption }}</p>
                     {% endif %}
                     
                     {% if photo.people_present %}
-                    <div class="mt-1">
-                        <span class="text-xs text-primary"><i class="fas fa-user-tag me-1"></i> With: {{ photo.people_present }}</span>
-                    </div>
+                    <p class="mb-0" style="font-size: 12px; color: #764ba2;">
+                        <i class="fas fa-user-tag me-1"></i> with {{ photo.people_present }}
+                    </p>
                     {% endif %}
 
                     {% if photo.auto_tags %}
-                    <div class="mt-2 pt-2 border-top">
-                        <span class="text-xs text-muted fw-bold" style="font-size: 10px;">AI ANALYSIS:</span>
-                        <br>
-                        <span class="badge bg-light text-dark border" style="font-size: 10px; font-weight: normal; letter-spacing: 0.5px;">
-                            <i class="fas fa-robot me-1 text-primary"></i> {{ photo.auto_tags }}
-                        </span>
+                    <div class="ai-analysis-box">
+                        <span class="ai-label"><i class="fas fa-robot me-1"></i> AI Studio Insight</span>
+                        <span class="ai-badge">Tags: {{ photo.auto_tags }}</span>
                     </div>
                     {% endif %}
                 </div>
 
-                {% set comments = photo.comments.all() %}
-                {% if comments %}
+                <div id="comments-list-{{ photo.id }}" class="mt-3">
+                    {% set comments = photo.comments.all() %}
                     {% if comments|length > 2 %}
-                        <div class="text-muted text-xs mb-2 cursor-pointer" 
+                        <div class="text-muted small mb-2 cursor-pointer fw-bold" 
                              onclick="document.getElementById('hidden-comments-{{ photo.id }}').style.display='block'; this.style.display='none';">
-                            View all {{ comments|length }} comments
+                            Show all {{ comments|length }} comments
                         </div>
                         <div id="hidden-comments-{{ photo.id }}" style="display: none;">
                             {% for comment in comments[:-2] %}
-                                <div class="mb-1 text-sm caption-text">
-                                    <span class="fw-semibold me-1">{{ comment.user.username }}</span>
-                                    <span>
-                                        {% if "[AI: Positive]" in comment.text %}
-                                            {{ comment.text.split('[AI:')[0] }} <i class="fas fa-circle text-success ms-1" style="font-size: 6px;" title="Positive"></i>
-                                        {% elif "[AI: Negative]" in comment.text %}
-                                            {{ comment.text.split('[AI:')[0] }} <i class="fas fa-circle text-danger ms-1" style="font-size: 6px;" title="Negative"></i>
-                                        {% else %}
-                                            {{ comment.text.split('[AI:')[0] }}
-                                        {% endif %}
-                                    </span>
+                                <div class="mb-2 small">
+                                    <span class="fw-bold me-2">{{ comment.user.username }}</span>
+                                    <span>{{ comment.text.split('[AI:')[0] }}</span>
+                                    {% if "[AI: Positive]" in comment.text %}<i class="fas fa-circle text-success ms-1" style="font-size: 6px;"></i>
+                                    {% elif "[AI: Negative]" in comment.text %}<i class="fas fa-circle text-danger ms-1" style="font-size: 6px;"></i>{% endif %}
                                 </div>
                             {% endfor %}
                         </div>
                     {% endif %}
 
                     {% for comment in comments[-2:] %}
-                    <div class="mb-1 text-sm caption-text">
-                        <span class="fw-semibold me-1">{{ comment.user.username }}</span>
-                        <span>
-                            {% if "[AI: Positive]" in comment.text %}
-                                {{ comment.text.split('[AI:')[0] }} <i class="fas fa-circle text-success ms-1" style="font-size: 6px;"></i>
-                            {% elif "[AI: Negative]" in comment.text %}
-                                {{ comment.text.split('[AI:')[0] }} <i class="fas fa-circle text-danger ms-1" style="font-size: 6px;"></i>
-                            {% else %}
-                                {{ comment.text.split('[AI:')[0] }}
-                            {% endif %}
-                        </span>
+                    <div class="mb-2 small">
+                        <span class="fw-bold me-2">{{ comment.user.username }}</span>
+                        <span>{{ comment.text.split('[AI:')[0] }}</span>
+                        {% if "[AI: Positive]" in comment.text %}<i class="fas fa-circle text-success ms-1" style="font-size: 6px;"></i>
+                        {% elif "[AI: Negative]" in comment.text %}<i class="fas fa-circle text-danger ms-1" style="font-size: 6px;"></i>{% endif %}
                     </div>
                     {% endfor %}
-                {% endif %}
+                </div>
                 
                 <div id="new-comments-{{ photo.id }}"></div>
-
-                <small class="text-uppercase text-muted" style="font-size: 10px;">{{ photo.uploaded_at | timeago }}</small>
+                <small class="text-uppercase text-muted" style="font-size: 10px; letter-spacing: 0.5px;">{{ photo.uploaded_at | timeago }}</small>
             </div>
 
             {% if current_user.role == 'consumer' %}
-            <form onsubmit="submitComment(event)" data-photo-id="{{ photo.id }}" class="border-top p-3 d-flex align-items-center">
-                <i class="far fa-smile fa-lg text-muted me-2"></i>
+            <form onsubmit="submitComment(event)" data-photo-id="{{ photo.id }}" class="border-top d-flex align-items-center bg-light">
                 <input type="text" name="text" id="comment-input-{{ photo.id }}" 
-                       class="comment-input" 
-                       placeholder="Add a comment..." required autocomplete="off">
-                <button type="submit" class="btn-link">Post</button>
+                       class="comment-input-loft" placeholder="Add a comment to Hanan's Loft..." required autocomplete="off">
+                <button type="submit" class="post-btn-loft">Post</button>
             </form>
             {% endif %}
 
         </div>
         {% else %}
         <div class="text-center py-5 mt-5">
-            <div class="mb-3 text-muted"><i class="fas fa-camera fa-3x"></i></div>
-            <h3>No Posts Yet</h3>
-            <p class="text-muted">Follow creators to see photos.</p>
+            <i class="fas fa-camera-retro fa-4x mb-4" style="color: #764ba2; opacity: 0.3;"></i>
+            <h3 class="fw-light">Loft is empty</h3>
+            <p class="text-muted">Start following creators to see their masterpieces.</p>
         </div>
         {% endfor %}
         
@@ -157,13 +211,13 @@
 </div>
 
 <script>
+    /* JavaScript functions remain exactly as before to maintain functionality */
     function submitComment(event) {
         event.preventDefault();
         const form = event.target;
         const photoId = form.getAttribute('data-photo-id');
         const input = form.querySelector('input[name="text"]');
         const text = input.value;
-        
         const formData = new FormData();
         formData.append('text', text);
 
@@ -171,59 +225,37 @@
         .then(res => res.json())
         .then(data => {
             if (data.success) {
-                let badgeClass = '';
-                if(data.sentiment === 'positive') badgeClass = 'text-success';
-                else if(data.sentiment === 'negative') badgeClass = 'text-danger';
-                
+                let badgeClass = data.sentiment === 'positive' ? 'text-success' : (data.sentiment === 'negative' ? 'text-danger' : '');
                 const dotHtml = badgeClass ? `<i class="fas fa-circle ${badgeClass} ms-1" style="font-size: 6px;"></i>` : '';
-
-                const commentHtml = `
-                    <div class="mb-1 text-sm caption-text">
-                        <span class="fw-semibold me-1">${data.username}</span>
-                        <span>${data.text} ${dotHtml}</span>
-                    </div>
-                `;
+                const commentHtml = `<div class="mb-2 small"><span class="fw-bold me-2">${data.username}</span><span>${data.text} ${dotHtml}</span></div>`;
                 document.getElementById(`new-comments-${photoId}`).innerHTML += commentHtml;
                 input.value = '';
-            } else {
-                alert(data.message);
-            }
+            } else { alert(data.message); }
         });
     }
 
     function toggleLike(btn) {
         const photoId = btn.getAttribute('data-photo-id');
-        btn.style.transform = "scale(1.2)"; setTimeout(() => btn.style.transform = "scale(1)", 200);
         fetch(`/like/${photoId}`, { method: 'POST' })
         .then(res => res.json())
         .then(data => {
-            if(data.liked) {
-                btn.classList.remove('far'); btn.classList.add('fas', 'text-danger');
-            } else {
-                btn.classList.remove('fas', 'text-danger'); btn.classList.add('far');
-            }
+            if(data.liked) { btn.classList.replace('far', 'fas'); btn.classList.add('text-danger'); }
+            else { btn.classList.replace('fas', 'far'); btn.classList.remove('text-danger'); }
             document.getElementById('like-count-' + photoId).textContent = data.count;
         });
     }
 
     function toggleSave(btn) {
         const photoId = btn.getAttribute('data-photo-id');
-        btn.style.transform = "scale(1.2)"; setTimeout(() => btn.style.transform = "scale(1)", 200);
         fetch(`/save/${photoId}`, { method: 'POST' })
         .then(res => res.json())
         .then(data => {
-            if(data.saved) {
-                btn.classList.remove('far'); btn.classList.add('fas', 'text-dark');
-            } else {
-                btn.classList.remove('fas', 'text-dark'); btn.classList.add('far');
-            }
+            if(data.saved) { btn.classList.replace('far', 'fas'); btn.classList.add('text-dark'); }
+            else { btn.classList.replace('fas', 'far'); btn.classList.remove('text-dark'); }
         });
     }
 
     function focusComment(id) { document.getElementById(id).focus(); }
-    
-    function copyLink(link) {
-        navigator.clipboard.writeText(link).then(() => { alert('Link copied to clipboard!'); });
-    }
+    function copyLink(link) { navigator.clipboard.writeText(link).then(() => { alert('Link copied!'); }); }
 </script>
 {% endblock %}

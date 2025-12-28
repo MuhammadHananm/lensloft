@@ -1,58 +1,172 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="row justify-content-center mt-4">
-    <div class="col-md-8 col-lg-6">
-        <div class="auth-card text-start p-4 position-relative">
-            <h4 class="mb-4 fw-light">Edit Profile</h4>
-            
-            <form method="POST" enctype="multipart/form-data">
-                
-                <div class="mb-4 d-flex align-items-center gap-3 p-3 bg-light rounded border">
-                    <div class="rounded-circle overflow-hidden border" style="width: 58px; height: 58px; background: #fff;">
-                        {% if current_user.avatar %}
-                            <img src="{{ url_for('static', filename='uploads/' + current_user.avatar) }}" class="w-100 h-100 object-fit-cover">
-                        {% else %}
-                            <div class="d-flex align-items-center justify-content-center h-100"><i class="fas fa-user text-muted fa-lg"></i></div>
-                        {% endif %}
-                    </div>
-                    
-                    <div class="flex-grow-1">
-                        <h6 class="mb-1 fw-bold">{{ current_user.username }}</h6>
-                        
-                        <label class="text-primary fw-bold small cursor-pointer mb-0" for="avatarUpload">
-                            Change Profile Photo
-                        </label>
-                        <input type="file" name="avatar" id="avatarUpload" class="d-none" onchange="this.form.submit()"> <input type="file" name="avatar" id="avatarUpload" class="form-control form-control-sm mt-1">
-                        
-                        {% if current_user.avatar %}
-                            <div class="mt-1">
-                                <a href="{{ url_for('remove_avatar') }}" class="text-danger fw-bold small text-decoration-none">
-                                    Remove Current Photo
-                                </a>
-                            </div>
-                        {% endif %}
-                    </div>
-                </div>
+<style>
+    /* LensLoft Edit Profile Design for Hanan */
+    body {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+    }
+    .edit-container {
+        max-width: 550px;
+        margin: 30px auto;
+        padding: 20px;
+    }
+    .glass-edit-card {
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(15px);
+        border-radius: 24px;
+        padding: 40px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+        border: 1px solid rgba(255,255,255,0.4);
+    }
+    .edit-header {
+        text-align: center;
+        margin-bottom: 35px;
+    }
+    .edit-title {
+        font-family: 'Grand Hotel', cursive;
+        font-size: 3rem;
+        background: linear-gradient(to right, #667eea, #764ba2);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0;
+    }
+    .edit-tag {
+        font-size: 0.7rem;
+        letter-spacing: 2px;
+        color: #764ba2;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
 
-                <div class="mb-3">
-                    <label class="form-label fw-bold small text-muted">Username</label>
-                    <input type="text" class="form-control bg-light" value="{{ current_user.username }}" disabled>
-                    <div class="form-text text-xs">Username cannot be changed.</div>
-                </div>
+    /* Avatar Section */
+    .avatar-edit-wrapper {
+        background: rgba(248, 249, 250, 0.6);
+        border-radius: 16px;
+        padding: 20px;
+        border: 1px solid #e1e1e1;
+        margin-bottom: 30px;
+    }
+    .edit-avatar-img {
+        width: 70px;
+        height: 70px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid #764ba2;
+        padding: 2px;
+        background: white;
+    }
 
-                <div class="mb-4">
-                    <label class="form-label fw-bold small text-muted">Bio</label>
-                    <textarea name="bio" class="form-control" rows="3" placeholder="Write something about yourself...">{{ current_user.bio or '' }}</textarea>
-                    <div class="form-text text-xs">Brief description for your profile.</div>
-                </div>
+    .form-label-studio {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #555;
+        margin-left: 5px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .form-control-studio {
+        border-radius: 12px;
+        border: 1px solid #e1e1e1;
+        padding: 12px 15px;
+        font-size: 0.95rem;
+        margin-bottom: 5px;
+        background: #fdfdfd;
+        transition: all 0.3s;
+    }
+    .form-control-studio:focus {
+        border-color: #764ba2;
+        box-shadow: 0 0 0 3px rgba(118, 75, 162, 0.1);
+        background: white;
+    }
+    .form-control-studio:disabled {
+        background: #f1f1f1;
+        color: #999;
+    }
 
-                <div class="d-flex gap-2 pt-2">
-                    <button type="submit" class="btn btn-primary fw-bold px-4">Submit</button>
-                    <a href="{{ url_for('profile', username=current_user.username) }}" class="btn btn-light border fw-bold px-4">Cancel</a>
-                </div>
-            </form>
+    .btn-submit-loft {
+        background: linear-gradient(to right, #667eea, #764ba2);
+        border: none;
+        color: white;
+        padding: 12px 30px;
+        border-radius: 12px;
+        font-weight: 700;
+        transition: all 0.3s;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    .btn-submit-loft:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 15px rgba(118, 75, 162, 0.3);
+        color: white;
+    }
+    .btn-cancel-loft {
+        background: white;
+        border: 1px solid #dbdbdb;
+        color: #666;
+        padding: 12px 30px;
+        border-radius: 12px;
+        font-weight: 700;
+        transition: 0.3s;
+    }
+    .btn-cancel-loft:hover { background: #fafafa; color: #333; }
+</style>
+
+<div class="edit-container">
+    <div class="glass-edit-card">
+        <div class="edit-header">
+            <h1 class="edit-title">LensLoft Studio</h1>
+            <span class="edit-tag">Edit Profile: Hanan</span>
         </div>
+        
+        <form method="POST" enctype="multipart/form-data">
+            
+            <div class="avatar-edit-wrapper d-flex align-items-center gap-4">
+                <div class="position-relative">
+                    {% if current_user.avatar %}
+                        <img src="{{ url_for('static', filename='uploads/' + current_user.avatar) }}" class="edit-avatar-img">
+                    {% else %}
+                        <div class="edit-avatar-img d-flex align-items-center justify-content-center bg-white">
+                            <i class="fas fa-user text-muted fa-2xl"></i>
+                        </div>
+                    {% endif %}
+                </div>
+                
+                <div class="flex-grow-1">
+                    <h6 class="mb-1 fw-bold text-dark">{{ current_user.username }}</h6>
+                    <label class="text-primary fw-bold small cursor-pointer" for="avatarUpload" style="text-decoration: underline;">
+                        Update Studio Photo
+                    </label>
+                    <input type="file" name="avatar" id="avatarUpload" class="d-none" onchange="this.form.submit()">
+                    
+                    {% if current_user.avatar %}
+                        <div class="mt-1">
+                            <a href="{{ url_for('remove_avatar') }}" class="text-danger fw-bold small text-decoration-none">
+                                <i class="far fa-trash-alt me-1"></i> Remove Photo
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label-studio">Studio Username</label>
+                <input type="text" class="form-control form-control-studio" value="{{ current_user.username }}" disabled>
+                <div class="form-text text-muted" style="font-size: 0.7rem;">Username is locked to your identity.</div>
+            </div>
+
+            <div class="mb-4">
+                <label class="form-label-studio">Studio Bio</label>
+                <textarea name="bio" class="form-control form-control-studio" rows="4" placeholder="Share your photography journey...">{{ current_user.bio or '' }}</textarea>
+                <div class="form-text text-muted" style="font-size: 0.7rem;">Tell the world about your LensLoft vision.</div>
+            </div>
+
+            <div class="d-flex gap-3 pt-2">
+                <button type="submit" class="btn btn-submit-loft flex-grow-1">Save Changes</button>
+                <a href="{{ url_for('profile', username=current_user.username) }}" class="btn btn-cancel-loft">Cancel</a>
+            </div>
+        </form>
     </div>
 </div>
 {% endblock %}

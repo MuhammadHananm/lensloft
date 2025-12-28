@@ -1,39 +1,111 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="auth-container">
-    <div class="auth-card">
-        <h1 style="font-family: 'Grand Hotel', cursive; font-size: 3rem; margin-bottom: 10px;">PhotoShare</h1>
-        <p class="text-muted fw-bold mb-4">Sign up to see photos from your friends.</p>
+<style>
+    /* LensLoft Premium Design for Hanan */
+    body {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+    }
+    .auth-container-new {
+        max-width: 400px;
+        width: 100%;
+        margin: auto;
+        padding: 20px;
+    }
+    .glass-card {
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(10px);
+        border-radius: 20px;
+        padding: 40px;
+        box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+        text-align: center;
+        border: 1px solid rgba(255,255,255,0.3);
+    }
+    .brand-name {
+        font-family: 'Grand Hotel', cursive;
+        font-size: 4rem;
+        background: linear-gradient(to right, #667eea, #764ba2);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 5px;
+    }
+    .student-info {
+        font-size: 0.75rem;
+        letter-spacing: 2px;
+        color: #764ba2;
+        font-weight: 700;
+        text-transform: uppercase;
+        margin-bottom: 20px;
+        display: block;
+    }
+    .form-floating > .form-control {
+        border-radius: 12px;
+        border: 1px solid #e1e1e1;
+        background: #fdfdfd;
+    }
+    
+    .btn-premium {
+        background: linear-gradient(to right, #667eea, #764ba2);
+        border: none;
+        color: white;
+        padding: 12px;
+        border-radius: 12px;
+        font-weight: 600;
+        width: 100%;
+        transition: all 0.3s ease;
+        margin-top: 15px;
+    }
+    .btn-premium:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(118, 75, 162, 0.3);
+        color: white;
+    }
+    .login-link {
+        margin-top: 25px;
+        font-size: 0.9rem;
+        color: #666;
+    }
+    .login-link a {
+        color: #764ba2;
+        text-decoration: none;
+        font-weight: 700;
+    }
+</style>
+
+<div class="auth-container-new">
+    <div class="glass-card">
+        <h1 class="brand-name">LensLoft</h1>
+        <span class="student-info">Curated by Hanan</span>
+        <p class="text-muted small mb-4">Create an account to join the community.</p>
         
         <form method="POST">
-            <div class="mb-2">
-                <input type="text" name="username" class="form-control" placeholder="Username" required>
-            </div>
-            <div class="mb-3">
-                <input type="password" name="password" class="form-control" placeholder="Password" required>
+            <div class="form-floating mb-3">
+                <input type="text" name="username" class="form-control" id="regUser" placeholder="Username" required>
+                <label for="regUser">Choose Username</label>
             </div>
             
-            {# --- TEMPORARY ROLE SELECTION COMMENTED OUT FOR TASK 1 COMPLIANCE ---
-            <div class="mb-3">
-                <label class="form-label text-muted small fw-bold">Select Your Role:</label>
-                <select name="role" class="form-select" style="font-size: 0.9rem;">
-                    <option value="consumer">Consumer (Viewer)</option>
-                    <option value="creator" selected>Creator (Uploader)</option>
-                </select>
-                <div class="form-text text-xs" style="font-size: 0.75rem;">
-                    Note: Assignment requires creators to be pre-enrolled.
-                </div>
+            <div class="form-floating mb-3">
+                <input type="password" name="password" class="form-control" id="regPass" placeholder="Password" required>
+                <label for="regPass">Create Password</label>
             </div>
-            --- #}
+            
+            <div class="mb-3 text-start">
+                <label class="form-label ms-2 text-muted small fw-bold" style="letter-spacing: 1px;">ACCOUNT TYPE</label>
+                <select name="role" class="form-select" style="border-radius: 12px; padding: 12px; background: #fdfdfd; font-size: 0.9rem;" required>
+                    <option value="consumer">Consumer (Public Gallery)</option>
+                    <option value="creator">Creator (Hanan's Admin Studio)</option>
+                </select>
+                <div class="form-text ms-2" style="font-size: 0.7rem;">Select 'Creator' to access the upload dashboard.</div>
+            </div>
 
-            <button type="submit" class="btn btn-primary w-100 fw-bold py-1">Sign Up</button>
+            <button type="submit" class="btn btn-premium">Join the Loft</button>
         </form>
-    </div>
-    
-    <div class="auth-card mt-3 py-3" style="padding: 20px 0;">
-        <p class="text-sm text-dark mb-0">
-            Have an account? <a href="{{ url_for('login') }}" class="fw-bold text-primary text-decoration-none">Log in</a>
-        </p>
+
+        <div class="login-link">
+            Already have an account? <a href="{{ url_for('login') }}">Log In</a>
+        </div>
     </div>
 </div>
 {% endblock %}

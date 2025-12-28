@@ -1,46 +1,145 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="row justify-content-center mt-4">
-    <div class="col-md-8 col-lg-6">
-        <div class="post-card shadow-sm">
-            <div class="card-header bg-white text-center py-3 border-bottom"><h5 class="mb-0 fw-bold">Create New Post</h5></div>
-            <div class="card-body p-4">
-                <form method="POST" enctype="multipart/form-data">
-                    <div class="text-center mb-4 p-5 border-2 border-dashed rounded" style="background-color: #f8f9fa; border-style: dashed; border-color: #dbdbdb;">
-                        <i class="fas fa-cloud-upload-alt fa-3x text-muted mb-3"></i>
-                        <p class="text-muted mb-3 small">Drag photos here</p>
-                        <input type="file" name="photo" class="form-control" required accept="image/*">
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small text-muted">Title</label>
-                        <input type="text" name="title" class="form-control bg-light" placeholder="e.g. Summer Trip" required>
-                    </div>
+<style>
+    /* LensLoft Studio Design for Hanan */
+    body {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+    }
+    .studio-container {
+        max-width: 600px;
+        margin: 20px auto;
+        padding: 20px;
+    }
+    .glass-studio-card {
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(15px);
+        border-radius: 24px;
+        padding: 40px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+        border: 1px solid rgba(255,255,255,0.4);
+    }
+    .studio-header {
+        text-align: center;
+        margin-bottom: 30px;
+    }
+    .studio-title {
+        font-family: 'Grand Hotel', cursive;
+        font-size: 3rem;
+        background: linear-gradient(to right, #667eea, #764ba2);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0;
+    }
+    .studio-tag {
+        font-size: 0.7rem;
+        letter-spacing: 2px;
+        color: #764ba2;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+    
+    /* Upload Zone Styling */
+    .upload-zone {
+        border: 2px dashed #d1d1d1;
+        border-radius: 16px;
+        padding: 30px;
+        text-align: center;
+        background: rgba(248, 249, 250, 0.5);
+        transition: all 0.3s ease;
+        margin-bottom: 25px;
+        cursor: pointer;
+    }
+    .upload-zone:hover {
+        border-color: #667eea;
+        background: rgba(102, 126, 234, 0.05);
+    }
+    
+    .form-label {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #555;
+        margin-left: 5px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .form-control-studio {
+        border-radius: 12px;
+        border: 1px solid #e1e1e1;
+        padding: 12px 15px;
+        font-size: 0.9rem;
+        margin-bottom: 15px;
+        background: #fdfdfd;
+        transition: border-color 0.3s;
+    }
+    .form-control-studio:focus {
+        border-color: #764ba2;
+        box-shadow: none;
+        background: white;
+    }
+    
+    .btn-share {
+        background: linear-gradient(to right, #667eea, #764ba2);
+        border: none;
+        color: white;
+        padding: 14px;
+        border-radius: 14px;
+        font-weight: 700;
+        width: 100%;
+        margin-top: 10px;
+        transition: transform 0.3s, box-shadow 0.3s;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    .btn-share:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 20px rgba(118, 75, 162, 0.3);
+        color: white;
+    }
+</style>
 
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small text-muted">Caption</label>
-                        <textarea name="caption" class="form-control bg-light" rows="2" placeholder="Write a caption..."></textarea>
-                    </div>
-
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label fw-bold small text-muted">Location</label>
-                                <input type="text" name="location" class="form-control bg-light" placeholder="Where was this?">
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label fw-bold small text-muted">People Present</label>
-                                <input type="text" name="people" class="form-control bg-light" placeholder="e.g. Ali, Sara">
-                            </div>
-                        </div>
-                    </div>
-
-                    <button type="submit" class="btn btn-primary w-100 py-2">Share</button>
-                </form>
-            </div>
+<div class="studio-container">
+    <div class="glass-studio-card">
+        <div class="studio-header">
+            <h1 class="studio-title">LensLoft Studio</h1>
+            <span class="studio-tag">Creator Mode: Hanan</span>
         </div>
+        
+        <form method="POST" enctype="multipart/form-data">
+            <div class="upload-zone" onclick="document.getElementById('photoInput').click();">
+                <i class="fas fa-camera-retro fa-3x mb-3" style="color: #764ba2; opacity: 0.7;"></i>
+                <p class="text-muted mb-2 fw-bold">Select a masterpiece to upload</p>
+                <input type="file" name="photo" id="photoInput" class="form-control d-none" required accept="image/*">
+                <span class="badge bg-light text-dark border">JPEG, PNG supported</span>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">Masterpiece Title</label>
+                <input type="text" name="title" class="form-control form-control-studio" placeholder="e.g. Golden Hour in London" required>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">The Story (Caption)</label>
+                <textarea name="caption" class="form-control form-control-studio" rows="2" placeholder="Tell the story behind this shot..."></textarea>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Location</label>
+                        <input type="text" name="location" class="form-control form-control-studio" placeholder="Where was this?">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">With (People)</label>
+                        <input type="text" name="people" class="form-control form-control-studio" placeholder="Tag friends...">
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-share">Publish to Loft</button>
+        </form>
     </div>
 </div>
 {% endblock %}

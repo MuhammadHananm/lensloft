@@ -234,6 +234,7 @@ def add_comment(photo_id):
     return jsonify({'success': True, 'username': current_user.username, 'text': clean_text, 'sentiment': sentiment_type})
 
 # --- UPDATED REGISTRATION ROUTE (CLEANED UP) ---
+# --- UPDATED REGISTRATION ROUTE (ALLOWS CREATOR SELECTION) ---
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated: return redirect(url_for('feed'))
@@ -241,21 +242,23 @@ def register():
         username = request.form.get('username')
         password = request.form.get('password')
         
-        # --- PREVIOUS LOGIC COMMENTED OUT FOR ASSIGNMENT COMPLIANCE ---
-        # role = request.form.get('role', 'consumer') 
+        # 1. Dropdown se role pick karein (default 'consumer' rakhein agar na mile)
+        role = request.form.get('role', 'consumer') 
         
         if User.query.filter_by(username=username).first():
             flash('Username taken', 'danger')
             return redirect(url_for('register'))
         
-        # Always default to 'consumer' for public registration
-        new_user = User(username=username, 
-                        password=generate_password_hash(password), 
-                        role='consumer') 
+        # 2. Role variable ko use karein naya user banane ke liye
+        new_user = User(
+            username=username, 
+            password=generate_password_hash(password), 
+            role=role  # Ab ye dropdown wali value pick karega
+        ) 
         
         db.session.add(new_user)
         db.session.commit()
-        flash('Account created! Please Log In.', 'success')
+        flash(f'Account created as {role.title()}! Please Log In.', 'success')
         return redirect(url_for('login')) 
     return render_template('register.html')
 
@@ -295,4 +298,4 @@ def logout():
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=True)
