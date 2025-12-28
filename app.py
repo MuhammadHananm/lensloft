@@ -13,39 +13,41 @@ from dotenv import load_dotenv
 # --- AZURE STORAGE LIBRARY ---
 from azure.storage.blob import BlobServiceClient
 
-# .env file se variables load karne ke liye
+# .env file se variables load karne ke liye (Local testing ke liye)
 load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'mysupersecretkeyIsVeryLongAndSecure')
 
 # --- DATABASE CONFIGURATION (Azure PostgreSQL) ---
+# Note: Azure portal par DB_URI mein '?sslmode=require' lazmi add karein
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DB_URI')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # --- AZURE BLOB STORAGE CONFIGURATION ---
 AZURE_CONNECTION_STRING = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
-AZURE_CONTAINER_NAME = os.getenv('AZURE_CONTAINER_NAME')
+AZURE_CONTAINER_NAME = os.getenv('AZURE_CONTAINER_NAME', 'photos')
 
 # Azure Client Initialize karein
+blob_service_client = None
 try:
     if AZURE_CONNECTION_STRING:
         blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
     else:
-        print("Warning: AZURE_STORAGE_CONNECTION_STRING not found in environment.")
+        print("Warning: AZURE_STORAGE_CONNECTION_STRING not found in environment variables.")
 except Exception as e:
     print(f"Azure Storage Connection Error: {e}")
 
-# Database aur Login Manager initialize karein
+# Database initialize karein
 db.init_app(app)
 
-# --- AUTO-CREATE TABLES ON STARTUP ---
+# --- AUTO-CREATE TABLES ON STARTUP (Fix for Internal Server Error) ---
 with app.app_context():
     try:
         db.create_all()
-        print("Database tables checked/created successfully!")
+        print("Database tables checked/created successfully on Azure!")
     except Exception as e:
-        print(f"Error creating database tables: {e}")
+        print(f"CRITICAL: Database connection failed. Check your DB_URI and Firewall settings. Error: {e}")
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -96,8 +98,8 @@ def analyze_image(img_obj):
         else: tags.append("Balanced Color 🎨")
 
     except Exception as e:
-        print(f"Analysis failed: {e}")
-        return "Not Analyzed"
+        print(f"AI Analysis failed: {e}")
+        return "Standard Photo"
     return " | ".join(tags)
 
 # --- ROUTES ---
@@ -151,15 +153,15 @@ def creator_dashboard():
             
             try:
                 img = Image.open(file)
-                if img.mode != 'RGB': img = img.convert('RGB')
-                
                 auto_tags = analyze_image(img)
                 img.thumbnail((1080, 1080))
                 
+                # Buffer for Cloud Upload
                 in_mem_file = io.BytesIO()
                 img.save(in_mem_file, format='JPEG', optimize=True, quality=85)
                 in_mem_file.seek(0)
                 
+                # Azure Blob Upload Logic
                 blob_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
                 blob_client = blob_service_client.get_blob_client(container=AZURE_CONTAINER_NAME, blob=blob_name)
                 blob_client.upload_blob(in_mem_file, overwrite=True)
@@ -172,11 +174,11 @@ def creator_dashboard():
                                   
                 db.session.add(new_photo)
                 db.session.commit()
-                flash('Photo Uploaded to Azure successfully!', 'success')
+                flash('Photo Uploaded to Azure Cloud successfully!', 'success')
                 return redirect(url_for('profile', username=current_user.username))
                 
             except Exception as e:
-                flash(f"Azure Upload Error: {str(e)}", 'danger')
+                flash(f"Azure Storage Upload Error: {str(e)}", 'danger')
                 
     return render_template('dashboard.html')
 
@@ -221,7 +223,7 @@ def add_comment(photo_id):
     
     analysis = TextBlob(text)
     score = analysis.sentiment.polarity
-    if score < -0.3: return jsonify({'success': False, 'message': 'Blocked: Negative content 🚫'})
+    if score < -0.3: return jsonify({'success': False, 'message': 'AI Blocked: Negative content detected 🚫'})
     
     sentiment_type = "neutral"
     if score > 0.3: text += " [AI: Positive]"; sentiment_type = "positive"
@@ -233,32 +235,27 @@ def add_comment(photo_id):
     clean_text = text.split('[AI:')[0]
     return jsonify({'success': True, 'username': current_user.username, 'text': clean_text, 'sentiment': sentiment_type})
 
-# --- UPDATED REGISTRATION ROUTE (CLEANED UP) ---
-# --- UPDATED REGISTRATION ROUTE (ALLOWS CREATOR SELECTION) ---
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated: return redirect(url_for('feed'))
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        
-        # 1. Dropdown se role pick karein (default 'consumer' rakhein agar na mile)
         role = request.form.get('role', 'consumer') 
         
         if User.query.filter_by(username=username).first():
-            flash('Username taken', 'danger')
+            flash('Username already exists. Try another.', 'danger')
             return redirect(url_for('register'))
         
-        # 2. Role variable ko use karein naya user banane ke liye
         new_user = User(
             username=username, 
             password=generate_password_hash(password), 
-            role=role  # Ab ye dropdown wali value pick karega
+            role=role 
         ) 
         
         db.session.add(new_user)
         db.session.commit()
-        flash(f'Account created as {role.title()}! Please Log In.', 'success')
+        flash(f'Account created successfully as {role.title()}! Login now.', 'success')
         return redirect(url_for('login')) 
     return render_template('register.html')
 
@@ -275,9 +272,9 @@ def login():
                 login_user(user)
                 return redirect(url_for('feed'))
             else:
-                flash(f'Incorrect Role! Registered as {user.role.title()}.', 'warning')
+                flash(f'Login Failed: Registered as {user.role.title()}, but tried logging in as {role.title()}.', 'warning')
         else:
-            flash('Invalid credentials', 'danger')
+            flash('Invalid Username or Password.', 'danger')
     return render_template('login.html')
 
 @app.route('/edit_profile', methods=['GET', 'POST'])
@@ -286,7 +283,7 @@ def edit_profile():
     if request.method == 'POST':
         current_user.bio = request.form.get('bio')
         db.session.commit()
-        flash('Profile updated!', 'success')
+        flash('Profile bio updated!', 'success')
         return redirect(url_for('profile', username=current_user.username))
     return render_template('edit_profile.html')
 
@@ -297,5 +294,6 @@ def logout():
     return redirect(url_for('login'))
 
 if __name__ == '__main__':
+    # Azure Web App automatically sets PORT
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=False)
