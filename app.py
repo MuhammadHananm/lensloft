@@ -241,7 +241,9 @@ def register():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        role = request.form.get('role', 'consumer') 
+        
+        # Dropdown ki bajaye role ko 'consumer' fix kar dein
+        role = 'consumer' 
         
         if User.query.filter_by(username=username).first():
             flash('Username already exists. Try another.', 'danger')
@@ -250,12 +252,12 @@ def register():
         new_user = User(
             username=username, 
             password=generate_password_hash(password), 
-            role=role 
+            role=role # Hamesha consumer account banay ga
         ) 
         
         db.session.add(new_user)
         db.session.commit()
-        flash(f'Account created successfully as {role.title()}! Login now.', 'success')
+        flash(f'Account created successfully! Please Log In.', 'success')
         return redirect(url_for('login')) 
     return render_template('register.html')
 
