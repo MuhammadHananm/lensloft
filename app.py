@@ -22,6 +22,7 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'mysupersecretkeyIsVeryLongAn
 # --- DATABASE CONFIGURATION (Azure PostgreSQL) ---
 # Note: Azure portal par DB_URI mein '?sslmode=require' lazmi add karein
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('AZURE_POSTGRESQL_CONNECTIONSTRING')
+print(os.getenv('AZURE_POSTGRESQL_CONNECTIONSTRING'))  # Debugging ke liye
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # --- AZURE BLOB STORAGE CONFIGURATION ---
