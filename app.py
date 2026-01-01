@@ -9,6 +9,7 @@ from models import db, User, Photo, Like, Comment, Save
 from textblob import TextBlob
 from PIL import Image, ImageStat
 from dotenv import load_dotenv
+import urllib.parse
 
 # --- AZURE STORAGE LIBRARY ---
 from azure.storage.blob import BlobServiceClient
@@ -20,9 +21,36 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'mysupersecretkeyIsVeryLongAndSecure')
 
 # --- DATABASE CONFIGURATION (Azure PostgreSQL) ---
-# Note: Azure portal par DB_URI mein '?sslmode=require' lazmi add karein
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('AZURE_POSTGRESQL_CONNECTIONSTRING')
-print(os.getenv('AZURE_POSTGRESQL_CONNECTIONSTRING'))  # Debugging ke liye
+# Support either a full URI (postgresql://...) or Azure-style key=value string
+raw_conn = os.getenv('AZURE_POSTGRESQL_CONNECTIONSTRING') or os.getenv('DATABASE_URL')
+
+SQLALCHEMY_DATABASE_URI = None
+
+if raw_conn:
+    # If it's already a URI (contains scheme://), use it as-is
+    if '://' in raw_conn:
+        SQLALCHEMY_DATABASE_URI = raw_conn
+    else:
+        # Expecting space-separated key=value pairs (Azure format)
+        try:
+            conn_params = dict(pair.split('=', 1) for pair in raw_conn.split())
+            user = conn_params.get('user') or conn_params.get('username')
+            password = conn_params.get('password') or ''
+            host = conn_params.get('host', 'localhost')
+            port = conn_params.get('port', '5432')
+            dbname = conn_params.get('dbname') or conn_params.get('database')
+
+            safe_password = urllib.parse.quote_plus(password)
+            SQLALCHEMY_DATABASE_URI = f"postgresql://{user}:{safe_password}@{host}:{port}/{dbname}?sslmode=require"
+        except Exception as e:
+            print(f"Warning: failed to parse AZURE_POSTGRESQL_CONNECTIONSTRING: {e}")
+            SQLALCHEMY_DATABASE_URI = raw_conn
+else:
+    # Local development fallback to a file-based SQLite DB
+    print('Info: No AZURE_POSTGRESQL_CONNECTIONSTRING or DATABASE_URL found; using local SQLite fallback.')
+    SQLALCHEMY_DATABASE_URI = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'instance', 'app.db')}"
+
+app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # --- AZURE BLOB STORAGE CONFIGURATION ---
