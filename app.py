@@ -1,5 +1,6 @@
 import os
 import io
+import logging
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
@@ -17,6 +18,11 @@ from azure.storage.blob import BlobServiceClient
 # .env file se variables load karne ke liye (Local testing ke liye)
 load_dotenv()
 
+# --- LOGGING CONFIG ---
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
+logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+logger = logging.getLogger('photo_share_app')
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'mysupersecretkeyIsVeryLongAndSecure')
 
@@ -24,14 +30,41 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'mysupersecretkeyIsVeryLongAn
 # Support either a full URI (postgresql://...) or Azure-style key=value string
 raw_conn = os.getenv('AZURE_POSTGRESQL_CONNECTIONSTRING') or os.getenv('DATABASE_URL')
 
+def _mask_password_in_kv(s: str) -> str:
+    try:
+        parts = s.split()
+        out = []
+        for p in parts:
+            if p.lower().startswith('password='):
+                out.append('password=****')
+            else:
+                out.append(p)
+        return ' '.join(out)
+    except Exception:
+        return '****'
+
+def _mask_sqlalchemy_uri(uri: str) -> str:
+    try:
+        if '://' in uri:
+            parsed = urllib.parse.urlparse(uri)
+            if parsed.password:
+                netloc = f"{parsed.username}:****@{parsed.hostname}"
+                if parsed.port:
+                    netloc += f":{parsed.port}"
+                masked = urllib.parse.urlunparse((parsed.scheme, netloc, parsed.path or '', '', parsed.query or '', ''))
+                return masked
+        if 'password=' in uri.lower():
+            return _mask_password_in_kv(uri)
+        return uri
+    except Exception:
+        return '****'
+
 SQLALCHEMY_DATABASE_URI = None
 
 if raw_conn:
-    # If it's already a URI (contains scheme://), use it as-is
     if '://' in raw_conn:
         SQLALCHEMY_DATABASE_URI = raw_conn
     else:
-        # Expecting space-separated key=value pairs (Azure format)
         try:
             conn_params = dict(pair.split('=', 1) for pair in raw_conn.split())
             user = conn_params.get('user') or conn_params.get('username')
@@ -43,14 +76,15 @@ if raw_conn:
             safe_password = urllib.parse.quote_plus(password)
             SQLALCHEMY_DATABASE_URI = f"postgresql://{user}:{safe_password}@{host}:{port}/{dbname}?sslmode=require"
         except Exception as e:
-            print(f"Warning: failed to parse AZURE_POSTGRESQL_CONNECTIONSTRING: {e}")
+            logger.warning("Failed to parse AZURE_POSTGRESQL_CONNECTIONSTRING; falling back to raw value: %s", e)
             SQLALCHEMY_DATABASE_URI = raw_conn
+    logger.debug('Raw DB config: %s', _mask_password_in_kv(raw_conn) if raw_conn else None)
 else:
-    # Local development fallback to a file-based SQLite DB
-    print('Info: No AZURE_POSTGRESQL_CONNECTIONSTRING or DATABASE_URL found; using local SQLite fallback.')
+    logger.info('No AZURE_POSTGRESQL_CONNECTIONSTRING or DATABASE_URL found; using local SQLite fallback.')
     SQLALCHEMY_DATABASE_URI = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'instance', 'app.db')}"
 
 app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
+logger.info('Using SQLALCHEMY_DATABASE_URI: %s', _mask_sqlalchemy_uri(SQLALCHEMY_DATABASE_URI))
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # --- AZURE BLOB STORAGE CONFIGURATION ---
@@ -62,10 +96,11 @@ blob_service_client = None
 try:
     if AZURE_CONNECTION_STRING:
         blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+        logger.info('Azure Blob Storage client initialized; container=%s', AZURE_CONTAINER_NAME)
     else:
-        print("Warning: AZURE_STORAGE_CONNECTION_STRING not found in environment variables.")
+        logger.warning('AZURE_STORAGE_CONNECTION_STRING not found in environment variables.')
 except Exception as e:
-    print(f"Azure Storage Connection Error: {e}")
+    logger.exception('Azure Storage Connection Error: %s', e)
 
 # Database initialize karein
 db.init_app(app)
@@ -74,9 +109,22 @@ db.init_app(app)
 with app.app_context():
     try:
         db.create_all()
-        print("Database tables checked/created successfully on Azure!")
+        logger.info('Database tables checked/created successfully.')
     except Exception as e:
-        print(f"CRITICAL: Database connection failed. Check your DB_URI and Firewall settings. Error: {e}")
+        logger.exception('CRITICAL: Database connection failed. Check your DB_URI and Firewall settings.')
+
+# --- Health endpoint for deployments to probe readiness ---
+@app.route('/_health')
+def _health():
+    status = {'status': 'ok', 'db': {'configured': bool(app.config.get('SQLALCHEMY_DATABASE_URI'))}, 'azure_blob': {'configured': bool(AZURE_CONNECTION_STRING)}}
+    try:
+        # lightweight DB check
+        db.session.execute('SELECT 1')
+        status['db']['reachable'] = True
+    except Exception as e:
+        status['db']['reachable'] = False
+        logger.exception('Health check DB query failed: %s', e)
+    return jsonify(status)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
