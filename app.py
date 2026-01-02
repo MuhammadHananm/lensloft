@@ -6,9 +6,20 @@ from flask_login import LoginManager, login_user, login_required, logout_user, c
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from models import db, User, Photo, Like, Comment, Save
+from dotenv import load_dotenv
+
+# --- NLTK DATA DOWNLOAD (for TextBlob) ---
+try:
+    import nltk
+    nltk.data.find('corpora/brown')
+except LookupError:
+    print("Downloading NLTK data...")
+    import nltk
+    nltk.download('brown', quiet=True)
+    nltk.download('punkt', quiet=True)
+
 from textblob import TextBlob
 from PIL import Image, ImageStat
-from dotenv import load_dotenv
 
 # --- AZURE STORAGE LIBRARY ---
 from azure.storage.blob import BlobServiceClient
@@ -87,9 +98,10 @@ db.init_app(app)
 with app.app_context():
     try:
         db.create_all()
-        print("Database tables checked/created successfully!")
+        print("✓ Database tables checked/created successfully!")
     except Exception as e:
-        print(f"Error creating database tables: {e}")
+        print(f"⚠ Warning - Error creating database tables: {e}")
+        print("⚠ Database operations may not work. Check your DATABASE_URL connection string.")
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -97,7 +109,11 @@ login_manager.login_view = 'login'
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    try:
+        return User.query.get(int(user_id))
+    except Exception as e:
+        print(f"User loader error: {e}")
+        return None
 
 # --- FILTERS ---
 @app.template_filter('timeago')

@@ -5,6 +5,7 @@ werkzeug
 azure-storage-blob
 psycopg2-binary
 textblob
+nltk
 Pillow
 python-dotenv
 gunicorn
