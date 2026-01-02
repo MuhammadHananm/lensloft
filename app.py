@@ -11,6 +11,18 @@ from textblob import TextBlob
 from PIL import Image, ImageStat
 from dotenv import load_dotenv
 import urllib.parse
+import io
+import logging
+from datetime import datetime
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask_login import LoginManager, login_user, login_required, logout_user, current_user
+from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
+from models import db, User, Photo, Like, Comment, Save
+from textblob import TextBlob
+from PIL import Image, ImageStat
+from dotenv import load_dotenv
+import urllib.parse
 
 # --- AZURE STORAGE LIBRARY ---
 from azure.storage.blob import BlobServiceClient
@@ -182,28 +194,52 @@ def creator_dashboard():
         return redirect(url_for('feed'))
     if request.method == 'POST':
         file = request.files.get('photo')
-        if file and blob_service_client:
+        if file:
             filename = secure_filename(file.filename)
-            img = Image.open(file)
-            auto_tags = analyze_image(img)
-            img.thumbnail((1080, 1080))
-            
-            # Cloud Upload Buffer
-            buf = io.BytesIO()
-            img.save(buf, format='JPEG', optimize=True, quality=85)
-            buf.seek(0)
-            
-            b_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
-            bc = blob_service_client.get_blob_client(container=AZURE_CONTAINER_NAME, blob=b_name)
-            bc.upload_blob(buf, overwrite=True)
-            
-            new_photo = Photo(filename=bc.url, title=request.form.get('title'), 
-                              caption=request.form.get('caption'), location=request.form.get('location'),
-                              people_present=request.form.get('people'), auto_tags=auto_tags, user_id=current_user.id)
-            db.session.add(new_photo)
-            db.session.commit()
-            flash('✓ Photo Uploaded to Azure Cloud!', 'success')
-            return redirect(url_for('profile', username=current_user.username))
+            try:
+                img = Image.open(file)
+                if img.mode != 'RGB': img = img.convert('RGB')
+                auto_tags = analyze_image(img)
+                img.thumbnail((1080, 1080))
+
+                # Cloud upload if configured
+                if blob_service_client and AZURE_CONTAINER_NAME:
+                    logger.info('Uploading photo to Azure for user %s', current_user.username)
+                    buf = io.BytesIO()
+                    img.save(buf, format='JPEG', optimize=True, quality=85)
+                    buf.seek(0)
+                    b_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
+                    bc = blob_service_client.get_blob_client(container=AZURE_CONTAINER_NAME, blob=b_name)
+                    bc.upload_blob(buf, overwrite=True)
+                    file_url = bc.url
+                    logger.info('Uploaded to Azure: %s', file_url)
+                elif LOCAL_UPLOAD_FOLDER:
+                    # Local fallback
+                    logger.info('Saving photo locally for user %s', current_user.username)
+                    b_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
+                    local_path = os.path.join(LOCAL_UPLOAD_FOLDER, b_name)
+                    try:
+                        img.save(local_path, format='JPEG', optimize=True, quality=85)
+                    except Exception:
+                        file.stream.seek(0)
+                        with open(local_path, 'wb') as f:
+                            f.write(file.stream.read())
+                    file_url = url_for('static', filename=f'uploads/{b_name}', _external=True)
+                else:
+                    flash('No storage configured for uploads.', 'danger')
+                    return render_template('dashboard.html')
+
+                new_photo = Photo(filename=file_url, title=request.form.get('title'),
+                                  caption=request.form.get('caption'), location=request.form.get('location'),
+                                  people_present=request.form.get('people'), auto_tags=auto_tags, user_id=current_user.id)
+                db.session.add(new_photo)
+                db.session.commit()
+                flash('✓ Photo uploaded!', 'success')
+                return redirect(url_for('profile', username=current_user.username))
+            except Exception:
+                logger.exception('Photo upload failed')
+                flash('Upload Error: see server logs', 'danger')
+         # if no file, simply render the form
     return render_template('dashboard.html')
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -238,12 +274,32 @@ def edit_profile():
     if request.method == 'POST':
         current_user.bio = request.form.get('bio')
         avatar = request.files.get('avatar')
-        if avatar and avatar.filename != '' and blob_service_client:
-            # Avatar persistence fix: Upload to Azure instead of local
-            b_name = f"avatar_{current_user.id}_{secure_filename(avatar.filename)}"
-            bc = blob_service_client.get_blob_client(container=AZURE_CONTAINER_NAME, blob=b_name)
-            bc.upload_blob(avatar, overwrite=True)
-            current_user.avatar = bc.url
+        if avatar and avatar.filename != '':
+            try:
+                avatar_filename = secure_filename(avatar.filename)
+                if blob_service_client and AZURE_CONTAINER_NAME:
+                    b_name = f"avatar_{current_user.id}_{avatar_filename}"
+                    bc = blob_service_client.get_blob_client(container=AZURE_CONTAINER_NAME, blob=b_name)
+                    bc.upload_blob(avatar, overwrite=True)
+                    current_user.avatar = bc.url
+                    logger.info('Uploaded avatar to Azure for user %s', current_user.username)
+                else:
+                    # Save locally
+                    local_name = f"avatar_{current_user.id}_{avatar_filename}"
+                    local_path = os.path.join(LOCAL_UPLOAD_FOLDER, local_name)
+                    try:
+                        img = Image.open(avatar)
+                        if img.mode != 'RGB': img = img.convert('RGB')
+                        img.thumbnail((400, 400))
+                        img.save(local_path, format='JPEG', optimize=True, quality=85)
+                    except Exception:
+                        avatar.stream.seek(0)
+                        with open(local_path, 'wb') as f:
+                            f.write(avatar.stream.read())
+                    current_user.avatar = local_name
+                    logger.info('Saved avatar locally: %s', local_path)
+            except Exception:
+                logger.exception('Avatar upload failed for user %s', getattr(current_user, 'username', None))
         db.session.commit()
         flash('Profile updated!', 'success')
         return redirect(url_for('profile', username=current_user.username))
