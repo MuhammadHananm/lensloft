@@ -1,6 +1,5 @@
 import os
 import io
-import logging
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
@@ -10,121 +9,87 @@ from models import db, User, Photo, Like, Comment, Save
 from textblob import TextBlob
 from PIL import Image, ImageStat
 from dotenv import load_dotenv
-import urllib.parse
 
 # --- AZURE STORAGE LIBRARY ---
 from azure.storage.blob import BlobServiceClient
 
-# .env file se variables load karne ke liye (Local testing ke liye)
+# .env file se variables load karne ke liye
 load_dotenv()
-
-# --- LOGGING CONFIG ---
-LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
-logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
-logger = logging.getLogger('photo_share_app')
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'mysupersecretkeyIsVeryLongAndSecure')
 
-# --- DATABASE CONFIGURATION (Azure PostgreSQL) ---
-# Support either a full URI (postgresql://...) or Azure-style key=value string
-raw_conn = os.getenv('AZURE_POSTGRESQL_CONNECTIONSTRING') or os.getenv('DATABASE_URL')
-
-def _mask_password_in_kv(s: str) -> str:
+# --- DATABASE CONFIGURATION ---
+# Prefer explicit SQLALCHEMY_DATABASE_URI, then Azure var, otherwise fallback to sqlite in instance/
+db_uri = os.getenv('SQLALCHEMY_DATABASE_URI') or os.getenv('AZURE_POSTGRESQL_CONNECTIONSTRING')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+if not db_uri:
+    # ensure instance folder exists (safe path for writable storage in many hosts)
     try:
-        parts = s.split()
-        out = []
-        for p in parts:
-            if p.lower().startswith('password='):
-                out.append('password=****')
-            else:
-                out.append(p)
-        return ' '.join(out)
+        os.makedirs(app.instance_path, exist_ok=True)
     except Exception:
-        return '****'
+        pass
+    db_path = os.path.join(app.instance_path, 'app.db')
+    db_uri = f'sqlite:///{db_path}'
+    print(f"Info: No DB URI found in env; falling back to SQLite at {db_path}")
+app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 
-def _mask_sqlalchemy_uri(uri: str) -> str:
+# -- Helpful startup logging: print which DB URI is being used (mask credentials)
+def _mask_db_uri(uri: str) -> str:
     try:
-        if '://' in uri:
-            parsed = urllib.parse.urlparse(uri)
-            if parsed.password:
-                netloc = f"{parsed.username}:****@{parsed.hostname}"
-                if parsed.port:
-                    netloc += f":{parsed.port}"
-                masked = urllib.parse.urlunparse((parsed.scheme, netloc, parsed.path or '', '', parsed.query or '', ''))
-                return masked
-        if 'password=' in uri.lower():
-            return _mask_password_in_kv(uri)
+        if uri.startswith('sqlite'):
+            return uri
+        # split scheme://userinfo@host/... ; mask password if present
+        parts = uri.split('://', 1)
+        scheme = parts[0]
+        rest = parts[1]
+        if '@' in rest:
+            userinfo, hostpath = rest.split('@', 1)
+            if ':' in userinfo:
+                user, pwd = userinfo.split(':', 1)
+                userinfo_masked = f"{user}:***"
+            else:
+                userinfo_masked = userinfo
+            return f"{scheme}://{userinfo_masked}@{hostpath}"
         return uri
     except Exception:
-        return '****'
+        return uri
 
-SQLALCHEMY_DATABASE_URI = None
-
-if raw_conn:
-    if '://' in raw_conn:
-        SQLALCHEMY_DATABASE_URI = raw_conn
-    else:
-        try:
-            conn_params = dict(pair.split('=', 1) for pair in raw_conn.split())
-            user = conn_params.get('user') or conn_params.get('username')
-            password = conn_params.get('password') or ''
-            host = conn_params.get('host', 'localhost')
-            port = conn_params.get('port', '5432')
-            dbname = conn_params.get('dbname') or conn_params.get('database')
-
-            safe_password = urllib.parse.quote_plus(password)
-            SQLALCHEMY_DATABASE_URI = f"postgresql://{user}:{safe_password}@{host}:{port}/{dbname}?sslmode=require"
-        except Exception as e:
-            logger.warning("Failed to parse AZURE_POSTGRESQL_CONNECTIONSTRING; falling back to raw value: %s", e)
-            SQLALCHEMY_DATABASE_URI = raw_conn
-    logger.debug('Raw DB config: %s', _mask_password_in_kv(raw_conn) if raw_conn else None)
-else:
-    logger.info('No AZURE_POSTGRESQL_CONNECTIONSTRING or DATABASE_URL found; using local SQLite fallback.')
-    SQLALCHEMY_DATABASE_URI = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'instance', 'app.db')}"
-
-app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
-logger.info('Using SQLALCHEMY_DATABASE_URI: %s', _mask_sqlalchemy_uri(SQLALCHEMY_DATABASE_URI))
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+print(f"Using database: {_mask_db_uri(db_uri)}")
 
 # --- AZURE BLOB STORAGE CONFIGURATION ---
 AZURE_CONNECTION_STRING = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
-AZURE_CONTAINER_NAME = os.getenv('AZURE_CONTAINER_NAME', 'photos')
+AZURE_CONTAINER_NAME = os.getenv('AZURE_CONTAINER_NAME')
 
-# Azure Client Initialize karein
-blob_service_client = None
+# Local uploads fallback (set LOCAL_UPLOADS=0 to disable)
+LOCAL_UPLOADS = os.getenv('LOCAL_UPLOADS', '1').lower() in ('1', 'true', 'yes')
+LOCAL_UPLOAD_FOLDER = os.path.join(app.root_path, 'static', 'uploads')
 try:
-    if AZURE_CONNECTION_STRING:
-        blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
-        logger.info('Azure Blob Storage client initialized; container=%s', AZURE_CONTAINER_NAME)
-    else:
-        logger.warning('AZURE_STORAGE_CONNECTION_STRING not found in environment variables.')
-except Exception as e:
-    logger.exception('Azure Storage Connection Error: %s', e)
+    os.makedirs(LOCAL_UPLOAD_FOLDER, exist_ok=True)
+except Exception:
+    pass
 
-# Database initialize karein
+# Azure Client Initialize (may be None if not configured)
+blob_service_client = None
+if AZURE_CONNECTION_STRING:
+    try:
+        blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+    except Exception as e:
+        print(f"Azure Storage Connection Error: {e}")
+else:
+    print("Warning: AZURE_STORAGE_CONNECTION_STRING not found in environment.")
+
+# Database aur Login Manager initialize karein
+# Initialize database extension
 db.init_app(app)
 
-# --- AUTO-CREATE TABLES ON STARTUP (Fix for Internal Server Error) ---
+# --- AUTO-CREATE TABLES ON STARTUP ---
 with app.app_context():
     try:
         db.create_all()
-        logger.info('Database tables checked/created successfully.')
+        print("Database tables checked/created successfully!")
     except Exception as e:
-        logger.exception('CRITICAL: Database connection failed. Check your DB_URI and Firewall settings.')
-
-# --- Health endpoint for deployments to probe readiness ---
-@app.route('/_health')
-def _health():
-    status = {'status': 'ok', 'db': {'configured': bool(app.config.get('SQLALCHEMY_DATABASE_URI'))}, 'azure_blob': {'configured': bool(AZURE_CONNECTION_STRING)}}
-    try:
-        # lightweight DB check
-        db.session.execute('SELECT 1')
-        status['db']['reachable'] = True
-    except Exception as e:
-        status['db']['reachable'] = False
-        logger.exception('Health check DB query failed: %s', e)
-    return jsonify(status)
+        print(f"Error creating database tables: {e}")
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -175,8 +140,8 @@ def analyze_image(img_obj):
         else: tags.append("Balanced Color 🎨")
 
     except Exception as e:
-        print(f"AI Analysis failed: {e}")
-        return "Standard Photo"
+        print(f"Analysis failed: {e}")
+        return "Not Analyzed"
     return " | ".join(tags)
 
 # --- ROUTES ---
@@ -227,35 +192,41 @@ def creator_dashboard():
         
         if file and title and file.filename != '':
             filename = secure_filename(file.filename)
-            
             try:
                 img = Image.open(file)
+                if img.mode != 'RGB': img = img.convert('RGB')
+
                 auto_tags = analyze_image(img)
                 img.thumbnail((1080, 1080))
-                
-                # Buffer for Cloud Upload
-                in_mem_file = io.BytesIO()
-                img.save(in_mem_file, format='JPEG', optimize=True, quality=85)
-                in_mem_file.seek(0)
-                
-                # Azure Blob Upload Logic
-                blob_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
-                blob_client = blob_service_client.get_blob_client(container=AZURE_CONTAINER_NAME, blob=blob_name)
-                blob_client.upload_blob(in_mem_file, overwrite=True)
-                
-                file_url = blob_client.url
-                
+
+                # Prefer Azure if configured, otherwise use local static/uploads when enabled
+                if blob_service_client and AZURE_CONTAINER_NAME:
+                    in_mem_file = io.BytesIO()
+                    img.save(in_mem_file, format='JPEG', optimize=True, quality=85)
+                    in_mem_file.seek(0)
+
+                    blob_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
+                    blob_client = blob_service_client.get_blob_client(container=AZURE_CONTAINER_NAME, blob=blob_name)
+                    blob_client.upload_blob(in_mem_file, overwrite=True)
+                    file_url = blob_client.url
+                elif LOCAL_UPLOADS:
+                    blob_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
+                    local_path = os.path.join(LOCAL_UPLOAD_FOLDER, blob_name)
+                    img.save(local_path, format='JPEG', optimize=True, quality=85)
+                    file_url = url_for('static', filename=f'uploads/{blob_name}', _external=True)
+                else:
+                    flash('Azure storage is not configured on the server. Uploads are disabled.', 'danger')
+                    return render_template('dashboard.html')
+
                 new_photo = Photo(filename=file_url, title=title, caption=caption, 
                                   location=location, people_present=people, 
                                   auto_tags=auto_tags, user_id=current_user.id)
-                                  
                 db.session.add(new_photo)
                 db.session.commit()
-                flash('Photo Uploaded to Azure Cloud successfully!', 'success')
+                flash('Photo Uploaded successfully!', 'success')
                 return redirect(url_for('profile', username=current_user.username))
-                
             except Exception as e:
-                flash(f"Azure Storage Upload Error: {str(e)}", 'danger')
+                flash(f"Upload Error: {str(e)}", 'danger')
                 
     return render_template('dashboard.html')
 
@@ -300,7 +271,7 @@ def add_comment(photo_id):
     
     analysis = TextBlob(text)
     score = analysis.sentiment.polarity
-    if score < -0.3: return jsonify({'success': False, 'message': 'AI Blocked: Negative content detected 🚫'})
+    if score < -0.3: return jsonify({'success': False, 'message': 'Blocked: Negative content 🚫'})
     
     sentiment_type = "neutral"
     if score > 0.3: text += " [AI: Positive]"; sentiment_type = "positive"
@@ -312,6 +283,8 @@ def add_comment(photo_id):
     clean_text = text.split('[AI:')[0]
     return jsonify({'success': True, 'username': current_user.username, 'text': clean_text, 'sentiment': sentiment_type})
 
+# --- UPDATED REGISTRATION ROUTE (CLEANED UP) ---
+# --- UPDATED REGISTRATION ROUTE ---
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated: return redirect(url_for('feed'))
@@ -319,22 +292,21 @@ def register():
         username = request.form.get('username')
         password = request.form.get('password')
         
-        # Dropdown ki bajaye role ko 'consumer' fix kar dein
-        role = 'consumer' 
+        # Dropdown se role hasil karein, default 'consumer' rakha hai safety ke liye
+        role = request.form.get('role', 'consumer') 
         
         if User.query.filter_by(username=username).first():
-            flash('Username already exists. Try another.', 'danger')
+            flash('Username taken', 'danger')
             return redirect(url_for('register'))
         
-        new_user = User(
-            username=username, 
-            password=generate_password_hash(password), 
-            role=role # Hamesha consumer account banay ga
-        ) 
+        # Naya user selected role ke saath create hoga
+        new_user = User(username=username, 
+                        password=generate_password_hash(password), 
+                        role=role) 
         
         db.session.add(new_user)
         db.session.commit()
-        flash(f'Account created successfully! Please Log In.', 'success')
+        flash(f'✓ Account created as {role.title()}! Please log in with your credentials.', 'success')
         return redirect(url_for('login')) 
     return render_template('register.html')
 
@@ -349,22 +321,69 @@ def login():
         if user and check_password_hash(user.password, password):
             if user.role == role:
                 login_user(user)
-                return redirect(url_for('feed'))
+                # Redirect to role-specific page: creators to dashboard, consumers to feed
+                if user.role == 'creator':
+                    return redirect(url_for('creator_dashboard'))
+                else:
+                    return redirect(url_for('feed'))
             else:
-                flash(f'Login Failed: Registered as {user.role.title()}, but tried logging in as {role.title()}.', 'warning')
+                flash(f'Incorrect Role! Registered as {user.role.title()}.', 'warning')
         else:
-            flash('Invalid Username or Password.', 'danger')
+            flash('Invalid credentials', 'danger')
     return render_template('login.html')
 
 @app.route('/edit_profile', methods=['GET', 'POST'])
 @login_required
 def edit_profile():
     if request.method == 'POST':
+        # Update bio
         current_user.bio = request.form.get('bio')
+
+        # Handle avatar upload if provided
+        avatar_file = request.files.get('avatar')
+        if avatar_file and avatar_file.filename != '':
+            try:
+                avatar_filename = secure_filename(avatar_file.filename)
+                # create a unique filename per user
+                avatar_name = f"{current_user.id}_avatar_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{avatar_filename}"
+                local_path = os.path.join(LOCAL_UPLOAD_FOLDER, avatar_name)
+                # save processed image to local uploads
+                img = Image.open(avatar_file)
+                if img.mode != 'RGB': img = img.convert('RGB')
+                img.thumbnail((400, 400))
+                img.save(local_path, format='JPEG', optimize=True, quality=85)
+                # store filename (templates expect filenames for static/uploads)
+                current_user.avatar = avatar_name
+            except Exception as e:
+                flash(f"Avatar Upload Error: {e}", 'danger')
+
         db.session.commit()
-        flash('Profile bio updated!', 'success')
+        flash('Profile updated!', 'success')
         return redirect(url_for('profile', username=current_user.username))
     return render_template('edit_profile.html')
+
+
+@app.route('/remove_avatar')
+@login_required
+def remove_avatar():
+    try:
+        if current_user.avatar:
+            # if stored as a full URL, just clear
+            if current_user.avatar.startswith('http'):
+                current_user.avatar = None
+            else:
+                file_path = os.path.join(LOCAL_UPLOAD_FOLDER, current_user.avatar)
+                try:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                except Exception:
+                    pass
+                current_user.avatar = None
+            db.session.commit()
+            flash('Profile photo removed.', 'success')
+    except Exception as e:
+        flash(f'Error removing avatar: {e}', 'danger')
+    return redirect(url_for('edit_profile'))
 
 @app.route('/logout')
 @login_required
@@ -373,6 +392,5 @@ def logout():
     return redirect(url_for('login'))
 
 if __name__ == '__main__':
-    # Azure Web App automatically sets PORT
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port)

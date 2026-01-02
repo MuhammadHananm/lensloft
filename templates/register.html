@@ -90,6 +90,14 @@
                 <input type="password" name="password" class="form-control" id="regPass" placeholder="Password" required>
                 <label for="regPass">Create Password</label>
             </div>
+
+            <div class="mb-3">
+                <select name="role" class="form-select" style="border-radius: 12px; padding: 12px; font-size: 0.9rem; color: #666;" required>
+                    <option value="" disabled selected>Select Account Type</option>
+                    <option value="consumer">Public Gallery (Consumer)</option>
+                    <option value="creator">Admin Studio (Creator)</option>
+                </select>
+            </div>
             
             <button type="submit" class="btn btn-premium">Join the Loft</button>
         </form>
