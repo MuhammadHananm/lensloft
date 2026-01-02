@@ -108,7 +108,18 @@
                         {% endif %}
                     </div>
                 </div>
+                {% if current_user.is_authenticated and current_user.id == photo.creator.id %}
+                <div class="dropdown">
+                    <a class="text-muted small dropdown-toggle" href="#" role="button" id="postMenu{{ photo.id }}" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fas fa-ellipsis-h"></i>
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="postMenu{{ photo.id }}">
+                        <li><a class="dropdown-item text-danger" href="#" onclick="deletePost({{ photo.id }}, this); return false;">Delete Post</a></li>
+                    </ul>
+                </div>
+                {% else %}
                 <i class="fas fa-ellipsis-h text-muted small"></i>
+                {% endif %}
             </div>
 
             <div class="bg-dark d-flex align-items-center justify-content-center" style="min-height: 400px;">

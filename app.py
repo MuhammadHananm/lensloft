@@ -311,20 +311,90 @@ def add_comment(photo_id):
     text = request.form.get('text')
     # Sentiment Analysis (Advanced Distinction Feature)
     score = TextBlob(text).sentiment.polarity
-    if score < -0.3: return jsonify({'success': False, 'message': 'AI Blocked: Negative content! 🚫'})
+    if score < -0.3:
+        return jsonify({'success': False, 'message': 'AI Blocked: Negative content! 🚫'})
+    # classify sentiment for UI badge
+    sentiment = 'neutral'
+    if score >= 0.3: sentiment = 'positive'
+    elif score <= -0.1: sentiment = 'negative'
+
     db.session.add(Comment(text=text, user_id=current_user.id, photo_id=photo_id))
     db.session.commit()
-    return jsonify({'success': True, 'username': current_user.username, 'text': text})
+    return jsonify({'success': True, 'username': current_user.username, 'text': text, 'sentiment': sentiment})
 
 @app.route('/like/<int:photo_id>', methods=['POST'])
 @login_required
 def toggle_like(photo_id):
     photo = Photo.query.get_or_404(photo_id)
     existing = Like.query.filter_by(user_id=current_user.id, photo_id=photo_id).first()
-    if existing: db.session.delete(existing)
-    else: db.session.add(Like(user_id=current_user.id, photo_id=photo_id))
+    if existing:
+        db.session.delete(existing)
+        liked = False
+    else:
+        db.session.add(Like(user_id=current_user.id, photo_id=photo_id))
+        liked = True
     db.session.commit()
-    return jsonify({'count': photo.likes.count()})
+    count = photo.likes.count()
+    return jsonify({'count': count, 'liked': liked})
+
+
+@app.route('/save/<int:photo_id>', methods=['POST'])
+@login_required
+def toggle_save(photo_id):
+    photo = Photo.query.get_or_404(photo_id)
+    existing = Save.query.filter_by(user_id=current_user.id, photo_id=photo_id).first()
+    if existing:
+        db.session.delete(existing)
+        saved = False
+    else:
+        db.session.add(Save(user_id=current_user.id, photo_id=photo_id))
+        saved = True
+    db.session.commit()
+    return jsonify({'saved': saved})
+
+
+@app.route('/post/<int:photo_id>/delete', methods=['POST'])
+@login_required
+def delete_post(photo_id):
+    photo = Photo.query.get_or_404(photo_id)
+    # Only the creator who owns the post may delete it
+    if photo.user_id != current_user.id:
+        return jsonify({'success': False, 'message': 'Not authorized'}), 403
+
+    # Attempt to delete stored file (Azure blob or local)
+    try:
+        if photo.filename and photo.filename.startswith('http') and AZURE_CONTAINER_NAME and blob_service_client:
+            # extract blob name after container path
+            parts = photo.filename.split(f"/{AZURE_CONTAINER_NAME}/")
+            if len(parts) == 2:
+                blob_name = parts[1]
+                try:
+                    blob_service_client.get_blob_client(container=AZURE_CONTAINER_NAME, blob=blob_name).delete_blob()
+                    logger.info('Deleted Azure blob: %s', blob_name)
+                except Exception:
+                    logger.exception('Failed deleting Azure blob %s', blob_name)
+        else:
+            # local file path handling
+            if '/static/uploads/' in (photo.filename or ''):
+                fname = photo.filename.split('/static/uploads/')[-1]
+                p = os.path.join(LOCAL_UPLOAD_FOLDER, fname)
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                        logger.info('Deleted local file: %s', p)
+                    except Exception:
+                        logger.exception('Failed to delete local file: %s', p)
+    except Exception:
+        logger.exception('Error while attempting to remove stored file for photo %s', photo_id)
+
+    try:
+        db.session.delete(photo)
+        db.session.commit()
+    except Exception:
+        logger.exception('Failed to delete photo record %s', photo_id)
+        return jsonify({'success': False, 'message': 'DB delete failed'}), 500
+
+    return jsonify({'success': True})
 
 @app.route('/logout')
 @login_required
