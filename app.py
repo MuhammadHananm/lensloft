@@ -396,6 +396,31 @@ def delete_post(photo_id):
 
     return jsonify({'success': True})
 
+
+# --- Debug helper: list recent photos (only for logged-in creators) ---
+@app.route('/debug/recent_photos', methods=['GET', 'POST'])
+@login_required
+def debug_recent_photos():
+    if current_user.role != 'creator':
+        flash('Access denied', 'danger')
+        return redirect(url_for('feed'))
+
+    if request.method == 'POST':
+        # form-based delete for testing
+        pid = request.form.get('photo_id')
+        if pid:
+            return delete_post(int(pid))
+
+    photos = Photo.query.order_by(Photo.uploaded_at.desc()).limit(50).all()
+    # simple HTML table for quick debugging
+    rows = ['<h3>Recent Photos (creator debug)</h3>', '<table class="table"><tr><th>ID</th><th>Filename</th><th>Action</th></tr>']
+    for p in photos:
+        rows.append(f"<tr><td>{p.id}</td><td style='max-width:400px;word-break:break-all'>{p.filename}</td>"
+                    f"<td><form method='post' style='display:inline'><input type='hidden' name='photo_id' value='{p.id}'/>"
+                    f"<button class='btn btn-sm btn-danger' type='submit'>Delete</button></form></td></tr>")
+    rows.append('</table>')
+    return '\n'.join(rows)
+
 @app.route('/logout')
 @login_required
 def logout():
