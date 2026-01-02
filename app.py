@@ -1,277 +1,378 @@
 import os
 import io
+import logging
 from datetime import datetime
-
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
-from dotenv import load_dotenv
-
 from models import db, User, Photo, Like, Comment, Save
-
-# ---------- AI / IMAGE ----------
-from PIL import Image, ImageStat
 from textblob import TextBlob
+from PIL import Image, ImageStat
+from dotenv import load_dotenv
+import urllib.parse
 
-# ---------- AZURE BLOB ----------
+# --- AZURE STORAGE LIBRARY ---
 from azure.storage.blob import BlobServiceClient
 
-# ---------- NLTK SAFE ----------
-try:
-    import nltk
-    nltk.data.find("corpora/brown")
-except LookupError:
-    import nltk
-    nltk.download("brown", quiet=True)
-    nltk.download("punkt", quiet=True)
-
-# ---------- ENV ----------
+# .env file se variables load karne ke liye (Local testing ke liye)
 load_dotenv()
 
-# ---------- APP ----------
+# --- LOGGING CONFIG ---
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
+logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+logger = logging.getLogger('photo_share_app')
+
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "super-secret-key")
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'mysupersecretkeyIsVeryLongAndSecure')
 
-# ---------- DATABASE ----------
-def parse_azure_pg(conn):
+# --- DATABASE CONFIGURATION (Azure PostgreSQL) ---
+# Support either a full URI (postgresql://...) or Azure-style key=value string
+raw_conn = os.getenv('AZURE_POSTGRESQL_CONNECTIONSTRING') or os.getenv('DATABASE_URL')
+
+def _mask_password_in_kv(s: str) -> str:
     try:
-        parts = dict(p.split("=", 1) for p in conn.split(";") if "=" in p)
-        return (
-            f"postgresql://{parts['User Id']}:{parts['Password']}"
-            f"@{parts['Server']}:{parts.get('Port','5432')}/{parts['Database']}"
-            "?sslmode=require"
-        )
+        parts = s.split()
+        out = []
+        for p in parts:
+            if p.lower().startswith('password='):
+                out.append('password=****')
+            else:
+                out.append(p)
+        return ' '.join(out)
     except Exception:
-        return conn
+        return '****'
 
+def _mask_sqlalchemy_uri(uri: str) -> str:
+    try:
+        if '://' in uri:
+            parsed = urllib.parse.urlparse(uri)
+            if parsed.password:
+                netloc = f"{parsed.username}:****@{parsed.hostname}"
+                if parsed.port:
+                    netloc += f":{parsed.port}"
+                masked = urllib.parse.urlunparse((parsed.scheme, netloc, parsed.path or '', '', parsed.query or '', ''))
+                return masked
+        if 'password=' in uri.lower():
+            return _mask_password_in_kv(uri)
+        return uri
+    except Exception:
+        return '****'
 
-db_uri = os.getenv("SQLALCHEMY_DATABASE_URI")
-if not db_uri and os.getenv("AZURE_POSTGRESQL_CONNECTIONSTRING"):
-    db_uri = parse_azure_pg(os.getenv("AZURE_POSTGRESQL_CONNECTIONSTRING"))
+SQLALCHEMY_DATABASE_URI = None
 
-if not db_uri:
-    os.makedirs(app.instance_path, exist_ok=True)
-    db_uri = f"sqlite:///{os.path.join(app.instance_path,'app.db')}"
-    print("ℹ SQLite fallback enabled")
+if raw_conn:
+    if '://' in raw_conn:
+        SQLALCHEMY_DATABASE_URI = raw_conn
+    else:
+        try:
+            conn_params = dict(pair.split('=', 1) for pair in raw_conn.split())
+            user = conn_params.get('user') or conn_params.get('username')
+            password = conn_params.get('password') or ''
+            host = conn_params.get('host', 'localhost')
+            port = conn_params.get('port', '5432')
+            dbname = conn_params.get('dbname') or conn_params.get('database')
 
-app.config["SQLALCHEMY_DATABASE_URI"] = db_uri
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+            safe_password = urllib.parse.quote_plus(password)
+            SQLALCHEMY_DATABASE_URI = f"postgresql://{user}:{safe_password}@{host}:{port}/{dbname}?sslmode=require"
+        except Exception as e:
+            logger.warning("Failed to parse AZURE_POSTGRESQL_CONNECTIONSTRING; falling back to raw value: %s", e)
+            SQLALCHEMY_DATABASE_URI = raw_conn
+    logger.debug('Raw DB config: %s', _mask_password_in_kv(raw_conn) if raw_conn else None)
+else:
+    logger.info('No AZURE_POSTGRESQL_CONNECTIONSTRING or DATABASE_URL found; using local SQLite fallback.')
+    SQLALCHEMY_DATABASE_URI = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'instance', 'app.db')}"
 
+app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
+logger.info('Using SQLALCHEMY_DATABASE_URI: %s', _mask_sqlalchemy_uri(SQLALCHEMY_DATABASE_URI))
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# --- AZURE BLOB STORAGE CONFIGURATION ---
+AZURE_CONNECTION_STRING = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
+AZURE_CONTAINER_NAME = os.getenv('AZURE_CONTAINER_NAME', 'photos')
+
+# Azure Client Initialize karein
+blob_service_client = None
+try:
+    if AZURE_CONNECTION_STRING:
+        blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+        logger.info('Azure Blob Storage client initialized; container=%s', AZURE_CONTAINER_NAME)
+    else:
+        logger.warning('AZURE_STORAGE_CONNECTION_STRING not found in environment variables.')
+except Exception as e:
+    logger.exception('Azure Storage Connection Error: %s', e)
+
+# Database initialize karein
 db.init_app(app)
 
+# --- AUTO-CREATE TABLES ON STARTUP (Fix for Internal Server Error) ---
 with app.app_context():
-    db.create_all()
+    try:
+        db.create_all()
+        logger.info('Database tables checked/created successfully.')
+    except Exception as e:
+        logger.exception('CRITICAL: Database connection failed. Check your DB_URI and Firewall settings.')
 
-# ---------- LOGIN ----------
+# --- Health endpoint for deployments to probe readiness ---
+@app.route('/_health')
+def _health():
+    status = {'status': 'ok', 'db': {'configured': bool(app.config.get('SQLALCHEMY_DATABASE_URI'))}, 'azure_blob': {'configured': bool(AZURE_CONNECTION_STRING)}}
+    try:
+        # lightweight DB check
+        db.session.execute('SELECT 1')
+        status['db']['reachable'] = True
+    except Exception as e:
+        status['db']['reachable'] = False
+        logger.exception('Health check DB query failed: %s', e)
+    return jsonify(status)
+
 login_manager = LoginManager()
-login_manager.login_view = "login"
 login_manager.init_app(app)
+login_manager.login_view = 'login'
 
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# ---------- STORAGE ----------
-LOCAL_UPLOADS = True
-UPLOAD_FOLDER = os.path.join(app.root_path, "static", "uploads")
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# --- FILTERS ---
+@app.template_filter('timeago')
+def timeago(date):
+    now = datetime.utcnow()
+    diff = now - date
+    seconds = diff.total_seconds()
+    if seconds < 60: return "Just now"
+    minutes = seconds // 60
+    if minutes < 60: return f"{int(minutes)}m ago"
+    hours = minutes // 60
+    if hours < 24: return f"{int(hours)}h ago"
+    days = hours // 24
+    return f"{int(days)}d ago"
 
-AZURE_CONN = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-AZURE_CONTAINER = os.getenv("AZURE_CONTAINER_NAME")
-blob_service = None
-if AZURE_CONN:
-    blob_service = BlobServiceClient.from_connection_string(AZURE_CONN)
-
-# ---------- HELPERS ----------
-def analyze_image(img):
+# --- AI IMAGE ANALYSIS ---
+def analyze_image(img_obj):
     tags = []
-    if img.mode != "RGB":
-        img = img.convert("RGB")
+    try:
+        if img_obj.mode != 'RGB': img_obj = img_obj.convert('RGB')
+        
+        # Quality Analysis
+        width, height = img_obj.size
+        if width * height > 1000000: tags.append("HD ᴴᴰ")
+        else: tags.append("SD")
 
-    w, h = img.size
-    tags.append("HD" if w * h > 1_000_000 else "SD")
+        # Brightness Analysis
+        stat = ImageStat.Stat(img_obj.convert('L'))
+        brightness = stat.mean[0]
+        if brightness > 150: tags.append("Bright ☀️")
+        elif brightness < 80: tags.append("Dark 🌙")
+        else: tags.append("Neutral Lighting ☁️")
 
-    brightness = ImageStat.Stat(img.convert("L")).mean[0]
-    if brightness > 150:
-        tags.append("Bright ☀️")
-    elif brightness < 80:
-        tags.append("Dark 🌙")
-    else:
-        tags.append("Neutral ☁️")
+        # Color Analysis
+        img_small = img_obj.resize((1, 1))
+        color = img_small.getpixel((0, 0))
+        r, g, b = color
+        if r > g and r > b: tags.append("Warm Tone 🔴")
+        elif b > r and b > g: tags.append("Cool Tone 🔵")
+        else: tags.append("Balanced Color 🎨")
 
-    r, g, b = img.resize((1, 1)).getpixel((0, 0))
-    if r > g and r > b:
-        tags.append("Warm 🔴")
-    elif b > r and b > g:
-        tags.append("Cool 🔵")
-    else:
-        tags.append("Balanced 🎨")
-
+    except Exception as e:
+        print(f"AI Analysis failed: {e}")
+        return "Standard Photo"
     return " | ".join(tags)
 
-# ---------- ROUTES ----------
-@app.route("/")
-def home():
-    if current_user.is_authenticated:
-        return redirect(url_for("feed"))
-    return redirect(url_for("login"))
+# --- ROUTES ---
 
-@app.route("/feed")
+@app.route('/')
+def home():
+    if current_user.is_authenticated: return redirect(url_for('feed'))
+    return redirect(url_for('login'))
+
+@app.route('/feed')
 @login_required
 def feed():
-    q = request.args.get("q")
-    if q:
-        s = f"%{q}%"
+    query = request.args.get('q')
+    if query:
+        search_term = f"%{query}%"
         photos = Photo.query.join(User).filter(
-            (Photo.title.ilike(s)) |
-            (Photo.caption.ilike(s)) |
-            (User.username.ilike(s))
-        ).all()
+            (Photo.title.ilike(search_term)) | 
+            (Photo.caption.ilike(search_term)) | 
+            (Photo.location.ilike(search_term)) |
+            (User.username.ilike(search_term))
+        ).order_by(Photo.uploaded_at.desc()).all()
     else:
         photos = Photo.query.order_by(Photo.uploaded_at.desc()).all()
-    return render_template("feed.html", photos=photos)
+    return render_template('feed.html', photos=photos)
 
-@app.route("/u/<username>")
+@app.route('/u/<username>')
 @login_required
 def profile(username):
     user = User.query.filter_by(username=username).first_or_404()
-    photos = Photo.query.filter_by(user_id=user.id).all()
-    saved = Photo.query.join(Save).filter(Save.user_id == user.id).all()
-    liked = Photo.query.join(Like).filter(Like.user_id == user.id).all()
-    return render_template(
-        "profile.html",
-        user=user,
-        photos=photos,
-        saved_photos=saved,
-        liked_photos=liked
-    )
+    photos = Photo.query.filter_by(user_id=user.id).order_by(Photo.uploaded_at.desc()).all()
+    saved_photos = Photo.query.join(Save).filter(Save.user_id == user.id).order_by(Save.timestamp.desc()).all()
+    liked_photos = Photo.query.join(Like).filter(Like.user_id == user.id).order_by(Like.timestamp.desc()).all()
+    return render_template('profile.html', user=user, photos=photos, saved_photos=saved_photos, liked_photos=liked_photos)
 
-@app.route("/upload", methods=["GET", "POST"])
+@app.route('/upload', methods=['GET', 'POST'])
 @login_required
 def creator_dashboard():
-    if current_user.role != "creator":
-        flash("Only creators allowed", "danger")
-        return redirect(url_for("feed"))
+    if current_user.role != 'creator':
+        flash("Only Creators can upload photos.", 'warning')
+        return redirect(url_for('feed'))
+        
+    if request.method == 'POST':
+        file = request.files.get('photo')
+        title = request.form.get('title')
+        caption = request.form.get('caption')
+        people = request.form.get('people')
+        location = request.form.get('location')
+        
+        if file and title and file.filename != '':
+            filename = secure_filename(file.filename)
+            
+            try:
+                img = Image.open(file)
+                auto_tags = analyze_image(img)
+                img.thumbnail((1080, 1080))
+                
+                # Buffer for Cloud Upload
+                in_mem_file = io.BytesIO()
+                img.save(in_mem_file, format='JPEG', optimize=True, quality=85)
+                in_mem_file.seek(0)
+                
+                # Azure Blob Upload Logic
+                blob_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
+                blob_client = blob_service_client.get_blob_client(container=AZURE_CONTAINER_NAME, blob=blob_name)
+                blob_client.upload_blob(in_mem_file, overwrite=True)
+                
+                file_url = blob_client.url
+                
+                new_photo = Photo(filename=file_url, title=title, caption=caption, 
+                                  location=location, people_present=people, 
+                                  auto_tags=auto_tags, user_id=current_user.id)
+                                  
+                db.session.add(new_photo)
+                db.session.commit()
+                flash('Photo Uploaded to Azure Cloud successfully!', 'success')
+                return redirect(url_for('profile', username=current_user.username))
+                
+            except Exception as e:
+                flash(f"Azure Storage Upload Error: {str(e)}", 'danger')
+                
+    return render_template('dashboard.html')
 
-    if request.method == "POST":
-        file = request.files.get("photo")
-        title = request.form.get("title")
-        caption = request.form.get("caption")
-        location = request.form.get("location")
-        people = request.form.get("people")
-
-        if not file or not title:
-            flash("Missing fields", "danger")
-            return redirect(request.url)
-
-        img = Image.open(file)
-        tags = analyze_image(img)
-        img.thumbnail((1080, 1080))
-
-        filename = secure_filename(file.filename)
-        name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
-
-        if blob_service and AZURE_CONTAINER:
-            mem = io.BytesIO()
-            img.save(mem, format="JPEG", quality=85)
-            mem.seek(0)
-            blob = blob_service.get_blob_client(AZURE_CONTAINER, name)
-            blob.upload_blob(mem, overwrite=True)
-            file_url = blob.url
-        else:
-            path = os.path.join(UPLOAD_FOLDER, name)
-            img.save(path, format="JPEG", quality=85)
-            file_url = url_for("static", filename=f"uploads/{name}")
-
-        photo = Photo(
-            filename=file_url,
-            title=title,
-            caption=caption,
-            location=location,
-            people_present=people,
-            auto_tags=tags,
-            user_id=current_user.id
-        )
-        db.session.add(photo)
-        db.session.commit()
-
-        flash("Uploaded successfully", "success")
-        return redirect(url_for("profile", username=current_user.username))
-
-    return render_template("dashboard.html")
-
-@app.route("/like/<int:photo_id>", methods=["POST"])
+@app.route('/like/<int:photo_id>', methods=['POST'])
 @login_required
-def like(photo_id):
-    obj = Like.query.filter_by(user_id=current_user.id, photo_id=photo_id).first()
-    if obj:
-        db.session.delete(obj)
-        liked = False
+def toggle_like(photo_id):
+    if current_user.role == 'creator': return jsonify({'liked': False, 'error': 'Creators cannot like'})
+    photo = Photo.query.get_or_404(photo_id)
+    existing_like = Like.query.filter_by(user_id=current_user.id, photo_id=photo_id).first()
+    liked = False
+    if existing_like:
+        db.session.delete(existing_like)
     else:
-        db.session.add(Like(user_id=current_user.id, photo_id=photo_id))
+        new_like = Like(user_id=current_user.id, photo_id=photo_id)
+        db.session.add(new_like)
         liked = True
     db.session.commit()
-    return jsonify(liked=liked)
+    return jsonify({'liked': liked, 'count': photo.likes.count()})
 
-@app.route("/save/<int:photo_id>", methods=["POST"])
+@app.route('/save/<int:photo_id>', methods=['POST'])
 @login_required
-def save(photo_id):
-    obj = Save.query.filter_by(user_id=current_user.id, photo_id=photo_id).first()
-    if obj:
-        db.session.delete(obj)
-        saved = False
+def toggle_save(photo_id):
+    if current_user.role == 'creator': return jsonify({'saved': False, 'error': 'Creators cannot save'})
+    photo = Photo.query.get_or_404(photo_id)
+    existing_save = Save.query.filter_by(user_id=current_user.id, photo_id=photo_id).first()
+    saved = False
+    if existing_save:
+        db.session.delete(existing_save)
     else:
-        db.session.add(Save(user_id=current_user.id, photo_id=photo_id))
+        new_save = Save(user_id=current_user.id, photo_id=photo_id)
+        db.session.add(new_save)
         saved = True
     db.session.commit()
-    return jsonify(saved=saved)
+    return jsonify({'saved': saved})
 
-@app.route("/comment/<int:photo_id>", methods=["POST"])
+@app.route('/comment/<int:photo_id>', methods=['POST'])
 @login_required
-def comment(photo_id):
-    text = request.form.get("text")
-    if not text:
-        return jsonify(success=False)
-
-    polarity = TextBlob(text).sentiment.polarity
-    if polarity < -0.3:
-        return jsonify(success=False, message="Negative blocked")
-
+def add_comment(photo_id):
+    if current_user.role == 'creator': return jsonify({'success': False, 'message': 'Creators cannot comment'})
+    text = request.form.get('text')
+    if not text: return jsonify({'success': False, 'message': 'Empty comment'})
+    
+    analysis = TextBlob(text)
+    score = analysis.sentiment.polarity
+    if score < -0.3: return jsonify({'success': False, 'message': 'AI Blocked: Negative content detected 🚫'})
+    
+    sentiment_type = "neutral"
+    if score > 0.3: text += " [AI: Positive]"; sentiment_type = "positive"
+    elif score < 0: text += " [AI: Negative]"; sentiment_type = "negative"
+    else: text += " [AI: Neutral]"
+    
     db.session.add(Comment(text=text, user_id=current_user.id, photo_id=photo_id))
     db.session.commit()
-    return jsonify(success=True)
+    clean_text = text.split('[AI:')[0]
+    return jsonify({'success': True, 'username': current_user.username, 'text': clean_text, 'sentiment': sentiment_type})
 
-@app.route("/register", methods=["GET", "POST"])
+@app.route('/register', methods=['GET', 'POST'])
 def register():
-    if request.method == "POST":
-        user = User(
-            username=request.form["username"],
-            password=generate_password_hash(request.form["password"]),
-            role=request.form.get("role", "consumer")
-        )
-        db.session.add(user)
+    if current_user.is_authenticated: return redirect(url_for('feed'))
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        # Dropdown ki bajaye role ko 'consumer' fix kar dein
+        role = 'consumer' 
+        
+        if User.query.filter_by(username=username).first():
+            flash('Username already exists. Try another.', 'danger')
+            return redirect(url_for('register'))
+        
+        new_user = User(
+            username=username, 
+            password=generate_password_hash(password), 
+            role=role # Hamesha consumer account banay ga
+        ) 
+        
+        db.session.add(new_user)
         db.session.commit()
-        return redirect(url_for("login"))
-    return render_template("register.html")
+        flash(f'Account created successfully! Please Log In.', 'success')
+        return redirect(url_for('login')) 
+    return render_template('register.html')
 
-@app.route("/login", methods=["GET", "POST"])
+@app.route('/login', methods=['GET', 'POST'])
 def login():
-    if request.method == "POST":
-        user = User.query.filter_by(username=request.form["username"]).first()
-        if user and check_password_hash(user.password, request.form["password"]):
-            login_user(user)
-            return redirect(url_for("feed"))
-        flash("Invalid credentials", "danger")
-    return render_template("login.html")
+    if current_user.is_authenticated: return redirect(url_for('feed'))
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        role = request.form.get('role')
+        user = User.query.filter_by(username=username).first()
+        if user and check_password_hash(user.password, password):
+            if user.role == role:
+                login_user(user)
+                return redirect(url_for('feed'))
+            else:
+                flash(f'Login Failed: Registered as {user.role.title()}, but tried logging in as {role.title()}.', 'warning')
+        else:
+            flash('Invalid Username or Password.', 'danger')
+    return render_template('login.html')
 
-@app.route("/logout")
+@app.route('/edit_profile', methods=['GET', 'POST'])
+@login_required
+def edit_profile():
+    if request.method == 'POST':
+        current_user.bio = request.form.get('bio')
+        db.session.commit()
+        flash('Profile bio updated!', 'success')
+        return redirect(url_for('profile', username=current_user.username))
+    return render_template('edit_profile.html')
+
+@app.route('/logout')
 @login_required
 def logout():
     logout_user()
-    return redirect(url_for("login"))
+    return redirect(url_for('login'))
 
-# ---------- LOCAL ----------
-if __name__ == "__main__":
+if __name__ == '__main__':
+    # Azure Web App automatically sets PORT
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host='0.0.0.0', port=port, debug=False)
