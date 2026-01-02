@@ -314,29 +314,30 @@ def add_comment(photo_id):
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    if current_user.is_authenticated: return redirect(url_for('feed'))
+    if current_user.is_authenticated:
+        return redirect(url_for('feed'))
+
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        
-        # Dropdown ki bajaye role ko 'consumer' fix kar dein
-        role = 'consumer' 
-        
+        role = request.form.get('role', 'consumer')  # Default consumer
+
         if User.query.filter_by(username=username).first():
-            flash('Username already exists. Try another.', 'danger')
+            flash('Username already taken', 'danger')
             return redirect(url_for('register'))
-        
+
         new_user = User(
-            username=username, 
-            password=generate_password_hash(password), 
-            role=role # Hamesha consumer account banay ga
-        ) 
-        
+            username=username,
+            password=generate_password_hash(password),
+            role=role
+        )
         db.session.add(new_user)
         db.session.commit()
-        flash(f'Account created successfully! Please Log In.', 'success')
-        return redirect(url_for('login')) 
+        flash(f'Account created as {role.title()}! Please log in.', 'success')
+        return redirect(url_for('login'))
+
     return render_template('register.html')
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
