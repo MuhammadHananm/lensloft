@@ -31,9 +31,41 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'mysupersecretkeyIsVeryLongAndSecure')
 
 # --- DATABASE CONFIGURATION ---
-# Prefer explicit SQLALCHEMY_DATABASE_URI, then Azure var, otherwise fallback to sqlite in instance/
-db_uri = os.getenv('SQLALCHEMY_DATABASE_URI') or os.getenv('AZURE_POSTGRESQL_CONNECTIONSTRING')
+def _parse_azure_connection_string(conn_str: str) -> str:
+    """Convert Azure PostgreSQL connection string to SQLAlchemy format"""
+    if not conn_str or not conn_str.startswith('Server='):
+        return conn_str
+    
+    try:
+        parts = {}
+        for part in conn_str.split(';'):
+            if '=' in part:
+                key, val = part.split('=', 1)
+                parts[key.strip()] = val.strip()
+        
+        server = parts.get('Server', 'localhost')
+        user = parts.get('User Id', 'postgres')
+        password = parts.get('Password', '')
+        database = parts.get('Database', 'postgres')
+        port = parts.get('Port', '5432')
+        
+        # Remove domain from server if present
+        server_host = server.split('.')[0] if '.' in server else server
+        
+        return f"postgresql://{user}:{password}@{server}:{port}/{database}?sslmode=require"
+    except Exception as e:
+        print(f"Warning: Could not parse Azure connection string: {e}")
+        return conn_str
+
+# Try to get database URI
+db_uri = os.getenv('SQLALCHEMY_DATABASE_URI')
+if not db_uri:
+    azure_conn = os.getenv('AZURE_POSTGRESQL_CONNECTIONSTRING')
+    if azure_conn:
+        db_uri = _parse_azure_connection_string(azure_conn)
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
 if not db_uri:
     # ensure instance folder exists (safe path for writable storage in many hosts)
     try:
@@ -42,7 +74,8 @@ if not db_uri:
         pass
     db_path = os.path.join(app.instance_path, 'app.db')
     db_uri = f'sqlite:///{db_path}'
-    print(f"Info: No DB URI found in env; falling back to SQLite at {db_path}")
+    print(f"ℹ No database configured in environment. Using SQLite: {db_path}")
+
 app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 
 # -- Helpful startup logging: print which DB URI is being used (mask credentials)
