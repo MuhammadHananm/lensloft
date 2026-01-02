@@ -268,5 +268,20 @@
 
     function focusComment(id) { document.getElementById(id).focus(); }
     function copyLink(link) { navigator.clipboard.writeText(link).then(() => { alert('Link copied!'); }); }
+
+    function deletePost(photoId, el) {
+        if(!confirm('Delete this post? This cannot be undone.')) return;
+        fetch(`/post/${photoId}/delete`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) {
+                // remove closest post card
+                let card = el.closest('.loft-post-card');
+                if(card) card.remove();
+            } else {
+                alert(data.message || 'Delete failed');
+            }
+        }).catch(err => { console.error(err); alert('Delete failed, check logs.'); });
+    }
 </script>
 {% endblock %}
